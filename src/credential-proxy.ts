@@ -79,11 +79,16 @@ export function startCredentialProxy(
           }
         }
 
+        // Combine base URL path with request path for providers like Baidu Qianfan
+        // that use custom paths (e.g., /anthropic/coding)
+        const basePath = upstreamUrl.pathname.replace(/\/$/, '');
+        const requestPath = basePath + req.url;
+
         const upstream = makeRequest(
           {
             hostname: upstreamUrl.hostname,
             port: upstreamUrl.port || (isHttps ? 443 : 80),
-            path: req.url,
+            path: requestPath,
             method: req.method,
             headers,
           } as RequestOptions,
