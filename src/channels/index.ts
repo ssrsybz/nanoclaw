@@ -4,10 +4,16 @@
 // discord
 import './discord.js';
 
+// feishu
+import './feishu.js';
+
 // gmail
 
 // slack
 
 // telegram
+
+// web
+import './web.js';
 
 // whatsapp

@@ -1,7 +1,16 @@
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-import { SENDER_ALLOWLIST_PATH } from './config.js';
 import { logger } from './logger.js';
+
+const HOME_DIR = process.env.HOME || os.homedir();
+const SENDER_ALLOWLIST_PATH = path.join(
+  HOME_DIR,
+  '.config',
+  'nanoclaw',
+  'sender-allowlist.json',
+);
 
 export interface ChatAllowlistEntry {
   allow: '*' | string[];

@@ -1,13 +1,12 @@
-import { ChildProcess } from 'child_process';
 import { CronExpressionParser } from 'cron-parser';
 import fs from 'fs';
 
 import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
-  ContainerOutput,
-  runContainerAgent,
+  AgentOutput,
+  runAgentDirect,
   writeTasksSnapshot,
-} from './container-runner.js';
+} from './agent-runner.js';
 import {
   getAllTasks,
   getDueTasks,
@@ -66,12 +65,6 @@ export interface SchedulerDependencies {
   registeredGroups: () => Record<string, RegisteredGroup>;
   getSessions: () => Record<string, string>;
   queue: GroupQueue;
-  onProcess: (
-    groupJid: string,
-    proc: ChildProcess,
-    containerName: string,
-    groupFolder: string,
-  ) => void;
   sendMessage: (jid: string, text: string) => Promise<void>;
 }
 
@@ -129,7 +122,7 @@ async function runTask(
     return;
   }
 
-  // Update tasks snapshot for container to read (filtered by group)
+  // Update tasks snapshot for agent to read (filtered by group)
   const isMain = group.isMain === true;
   const tasks = getAllTasks();
   writeTasksSnapshot(
@@ -155,22 +148,11 @@ async function runTask(
   const sessionId =
     task.context_mode === 'group' ? sessions[task.group_folder] : undefined;
 
-  // After the task produces a result, close the container promptly.
-  // Tasks are single-turn — no need to wait IDLE_TIMEOUT (30 min) for the
-  // query loop to time out. A short delay handles any final MCP calls.
-  const TASK_CLOSE_DELAY_MS = 10000;
-  let closeTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const scheduleClose = () => {
-    if (closeTimer) return; // already scheduled
-    closeTimer = setTimeout(() => {
-      logger.debug({ taskId: task.id }, 'Closing task container after result');
-      deps.queue.closeStdin(task.chat_jid);
-    }, TASK_CLOSE_DELAY_MS);
-  };
-
   try {
-    const output = await runContainerAgent(
+    // Register this agent session with the queue
+    deps.queue.registerAgent(task.chat_jid, task.group_folder);
+
+    const output = await runAgentDirect(
       group,
       {
         prompt: task.prompt,
@@ -182,26 +164,17 @@ async function runTask(
         assistantName: ASSISTANT_NAME,
         script: task.script || undefined,
       },
-      (proc, containerName) =>
-        deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
-      async (streamedOutput: ContainerOutput) => {
+      async (streamedOutput: AgentOutput) => {
         if (streamedOutput.result) {
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)
           await deps.sendMessage(task.chat_jid, streamedOutput.result);
-          scheduleClose();
-        }
-        if (streamedOutput.status === 'success') {
-          deps.queue.notifyIdle(task.chat_jid);
-          scheduleClose(); // Close promptly even when result is null (e.g. IPC-only tasks)
         }
         if (streamedOutput.status === 'error') {
           error = streamedOutput.error || 'Unknown error';
         }
       },
     );
-
-    if (closeTimer) clearTimeout(closeTimer);
 
     if (output.status === 'error') {
       error = output.error || 'Unknown error';
@@ -215,9 +188,10 @@ async function runTask(
       'Task completed',
     );
   } catch (err) {
-    if (closeTimer) clearTimeout(closeTimer);
     error = err instanceof Error ? err.message : String(err);
     logger.error({ taskId: task.id, error }, 'Task failed');
+  } finally {
+    deps.queue.unregisterAgent(task.chat_jid);
   }
 
   const durationMs = Date.now() - startTime;

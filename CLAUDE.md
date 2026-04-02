@@ -4,26 +4,28 @@ Personal Claude assistant. See [README.md](README.md) for philosophy and setup. 
 
 ## Quick Context
 
-Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
+Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK running directly in the main process. Each group has isolated filesystem and memory.
+
+> **Note:** This version runs without Docker containers. Agent Bash commands execute directly on the host system. Use only in trusted single-user environments.
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | Orchestrator: state, message loop, agent invocation |
+| `src/agent-runner.ts` | Direct Claude Agent SDK invocation |
 | `src/channels/registry.ts` | Channel registry (self-registration at startup) |
 | `src/ipc.ts` | IPC watcher and task processing |
 | `src/router.ts` | Message formatting and outbound routing |
 | `src/config.ts` | Trigger pattern, paths, intervals |
-| `src/container-runner.ts` | Spawns agent containers with mounts |
 | `src/task-scheduler.ts` | Runs scheduled tasks |
+| `src/group-queue.ts` | Agent session management and concurrency |
 | `src/db.ts` | SQLite operations |
 | `groups/{name}/CLAUDE.md` | Per-group memory (isolated) |
-| `container/skills/` | Skills loaded inside agent containers (browser, status, formatting) |
 
-## Secrets / Credentials / Proxy (OneCLI)
+## Secrets / Credentials
 
-API keys, secret keys, OAuth tokens, and auth credentials are managed by the OneCLI gateway — which handles secret injection into containers at request time, so no keys or tokens are ever passed to containers directly. Run `onecli --help`.
+API keys are read directly from `.env` file. Set `ANTHROPIC_API_KEY` in your `.env` file.
 
 ## Skills
 
@@ -32,15 +34,13 @@ Four types of skills exist in NanoClaw. See [CONTRIBUTING.md](CONTRIBUTING.md) f
 - **Feature skills** — merge a `skill/*` branch to add capabilities (e.g. `/add-telegram`, `/add-slack`)
 - **Utility skills** — ship code files alongside SKILL.md (e.g. `/claw`)
 - **Operational skills** — instruction-only workflows, always on `main` (e.g. `/setup`, `/debug`)
-- **Container skills** — loaded inside agent containers at runtime (`container/skills/`)
 
 | Skill | When to Use |
 |-------|-------------|
 | `/setup` | First-time installation, authentication, service configuration |
 | `/customize` | Adding channels, integrations, changing behavior |
-| `/debug` | Container issues, logs, troubleshooting |
+| `/debug` | Agent issues, logs, troubleshooting |
 | `/update-nanoclaw` | Bring upstream NanoClaw updates into a customized install |
-| `/init-onecli` | Install OneCLI Agent Vault and migrate `.env` credentials to it |
 | `/qodo-pr-resolver` | Fetch and fix Qodo PR review issues interactively or in batch |
 | `/get-qodo-rules` | Load org- and repo-level coding rules from Qodo before code tasks |
 
@@ -55,7 +55,7 @@ Run commands directly—don't tell the user to run them.
 ```bash
 npm run dev          # Run with hot reload
 npm run build        # Compile TypeScript
-./container/build.sh # Rebuild agent container
+npm install          # Install dependencies
 ```
 
 Service management:
@@ -75,6 +75,13 @@ systemctl --user restart nanoclaw
 
 **WhatsApp not connecting after upgrade:** WhatsApp is now a separate skill, not bundled in core. Run `/add-whatsapp` (or `npx tsx scripts/apply-skill.ts .claude/skills/add-whatsapp && npm run build`) to install it. Existing auth credentials and groups are preserved.
 
-## Container Build Cache
+## Architecture Notes
 
-The container buildkit caches the build context aggressively. `--no-cache` alone does NOT invalidate COPY steps — the builder's volume retains stale files. To force a truly clean rebuild, prune the builder then re-run `./container/build.sh`.
+### No-Container Mode
+
+This version runs the Claude Agent SDK directly in the main Node.js process:
+
+- **Security trade-off**: Agent Bash commands execute on the host system without isolation. Only use in trusted environments.
+- **Simplified deployment**: No Docker required. Just install dependencies and run.
+- **Browser automation**: Requires local Chromium installation for `agent-browser` functionality.
+- **Concurrency**: Controlled by `MAX_CONCURRENT_AGENTS` (default: 5).

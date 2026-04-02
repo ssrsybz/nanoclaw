@@ -163,10 +163,11 @@ onecli secrets list
 
 If an Anthropic secret is listed, confirm with user: keep or reconfigure? If keeping, skip to step 5.
 
-AskUserQuestion: Do you want to use your **Claude subscription** (Pro/Max) or an **Anthropic API key**?
+AskUserQuestion: Which LLM provider do you want to use?
 
 1. **Claude subscription (Pro/Max)** — description: "Uses your existing Claude Pro or Max subscription. You'll run `claude setup-token` in another terminal to get your token."
 2. **Anthropic API key** — description: "Pay-per-use API key from console.anthropic.com."
+3. **Third-party LLM** — description: "Use a compatible API (火山引擎/Kimi, OpenRouter, etc.). Requires API key, base URL, and model name."
 
 #### Subscription path
 
@@ -190,6 +191,25 @@ Then AskUserQuestion with two options:
 1. **Dashboard** — description: "Best if you have a browser on this machine. Open http://127.0.0.1:10254 and add the secret in the UI."
 2. **CLI** — description: "Best for remote/headless servers. Run: `onecli secrets create --name Anthropic --type anthropic --value YOUR_KEY --host-pattern api.anthropic.com`"
 
+#### Third-party LLM path
+
+For third-party LLM providers (火山引擎/Kimi, OpenRouter, etc.), OneCLI is not needed. Configure directly in `.env`.
+
+Ask the user for three pieces of information (use plain text questions, not AskUserQuestion):
+
+1. "What is the API base URL?" (e.g., `https://ark.cn-beijing.volces.com/api/coding` for 火山引擎)
+2. "What is the API key?"
+3. "What model name should be used?" (e.g., `kimi-k2.5`)
+
+Wait for each answer before asking the next. Then add all three to `.env`:
+```bash
+echo "ANTHROPIC_API_KEY=<api-key>" >> .env
+echo "ANTHROPIC_BASE_URL=<base-url>" >> .env
+echo "MODEL=<model-name>" >> .env
+```
+
+Skip the OneCLI secret verification step for this path.
+
 #### After either path
 
 Ask them to let you know when done.
@@ -204,22 +224,44 @@ Apple Container is not compatible with OneCLI. The credential proxy code is alre
 
 Instead, just configure the credentials in `.env`:
 
-AskUserQuestion: Do you want to use your **Claude subscription** (Pro/Max) or an **Anthropic API key**?
+AskUserQuestion: Which LLM provider do you want to use?
 
 1. **Claude subscription (Pro/Max)** — description: "Uses your existing Claude Pro or Max subscription. Run `claude setup-token` in another terminal to get your token."
 2. **Anthropic API key** — description: "Pay-per-use API key from console.anthropic.com."
+3. **Third-party LLM** — description: "Use a compatible API (火山引擎/Kimi, OpenRouter, etc.). Requires API key, base URL, and model name."
 
-For subscription: tell the user to run `claude setup-token` in another terminal. Stop and wait for the user to confirm they have completed this step successfully before proceeding.
+#### Claude subscription path
+
+Tell the user to run `claude setup-token` in another terminal. Stop and wait for the user to confirm they have completed this step successfully before proceeding.
 
 Once confirmed, add the token to `.env`:
 ```bash
 echo 'CLAUDE_CODE_OAUTH_TOKEN=<their-token>' >> .env
 ```
 
-For API key: add to `.env`:
+#### Anthropic API key path
+
+Add to `.env`:
 ```bash
 echo 'ANTHROPIC_API_KEY=<their-key>' >> .env
 ```
+
+#### Third-party LLM path
+
+Ask the user for three pieces of information (use plain text questions, not AskUserQuestion):
+
+1. "What is the API base URL?" (e.g., `https://ark.cn-beijing.volces.com/api/coding` for 火山引擎)
+2. "What is the API key?"
+3. "What model name should be used?" (e.g., `kimi-k2.5`)
+
+Wait for each answer before asking the next. Then add all three to `.env`:
+```bash
+echo "ANTHROPIC_API_KEY=<api-key>" >> .env
+echo "ANTHROPIC_BASE_URL=<base-url>" >> .env
+echo "MODEL=<model-name>" >> .env
+```
+
+#### After any path
 
 Verify the proxy starts: `npm run dev` should show "Credential proxy listening" in the logs.
 
