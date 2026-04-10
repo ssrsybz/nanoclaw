@@ -15,6 +15,7 @@ import {
   storeMessage,
   updateTask,
 } from './db.js';
+import type Database from 'better-sqlite3';
 import { formatMessages } from './router.js';
 
 beforeEach(() => {
@@ -568,5 +569,29 @@ describe('registered group isMain', () => {
     const group = groups['group@g.us'];
     expect(group).toBeDefined();
     expect(group.isMain).toBeUndefined();
+  });
+});
+
+// --- Schema: workspaces table and workspace_id column ---
+
+describe('workspace schema', () => {
+  it('creates workspaces table', () => {
+    const db = _initTestDatabase();
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='workspaces'",
+      )
+      .all();
+    expect(tables).toHaveLength(1);
+  });
+
+  it('adds workspace_id column to messages table', () => {
+    const db = _initTestDatabase();
+    const info = db.pragma('table_info(messages)') as Array<{
+      name: string;
+      type: string;
+    }>;
+    const col = info.find((c) => c.name === 'workspace_id');
+    expect(col).toBeDefined();
   });
 });

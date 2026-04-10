@@ -82,6 +82,14 @@ function createSchema(database: Database.Database): void {
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      enabled_skills TEXT DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -146,6 +154,13 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* columns already exist */
   }
+
+  // Add workspace_id column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec('ALTER TABLE messages ADD COLUMN workspace_id TEXT');
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function initDatabase(): void {
@@ -160,9 +175,10 @@ export function initDatabase(): void {
 }
 
 /** @internal - for tests only. Creates a fresh in-memory database. */
-export function _initTestDatabase(): void {
+export function _initTestDatabase(): Database.Database {
   db = new Database(':memory:');
   createSchema(db);
+  return db;
 }
 
 /** @internal - for tests only. */
