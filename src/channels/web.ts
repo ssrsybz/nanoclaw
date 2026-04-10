@@ -399,7 +399,7 @@ export class WebChannel implements Channel {
 
   private handleMessage(
     ws: WebSocket,
-    msg: { type: string; content?: string; sender?: string },
+    msg: { type: string; content?: string; sender?: string; workspaceId?: string },
   ): void {
     if (msg.type === 'message' && msg.content) {
       const timestamp = new Date().toISOString();
@@ -423,6 +423,7 @@ export class WebChannel implements Channel {
         content: msg.content,
         timestamp,
         is_from_me: false,
+        workspaceId: msg.workspaceId,
       });
 
       logger.info(

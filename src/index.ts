@@ -27,6 +27,7 @@ import {
   getAllRegisteredGroups,
   getAllSessions,
   getAllTasks,
+  getDb,
   getLastBotMessageTimestamp,
   getMessagesSince,
   getNewMessages,
@@ -56,6 +57,8 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { initStatusReporter, pushStatus } from './star-office-reporter.js';
+import { getWorkspace } from './workspace.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -220,6 +223,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const prompt = formatMessages(missedMessages, TIMEZONE);
 
+  // Resolve workspace context from the first message that carries workspaceId
+  let workspacePath: string | undefined;
+  let enabledSkills: string[] | undefined;
+  const withWorkspace = missedMessages.find((m) => m.workspaceId);
+  if (withWorkspace?.workspaceId) {
+    const ws = getWorkspace(getDb(), withWorkspace.workspaceId);
+    if (ws) {
+      workspacePath = ws.path;
+      enabledSkills = ws.enabledSkills;
+    }
+  }
+
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
   const previousCursor = lastAgentTimestamp[chatJid] || '';
@@ -236,7 +251,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
+  const output = await runAgent(
+    group,
+    prompt,
+    chatJid,
+    workspacePath,
+    enabledSkills,
+    async (result) => {
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -286,6 +307,8 @@ async function runAgent(
   group: RegisteredGroup,
   prompt: string,
   chatJid: string,
+  workspacePath?: string,
+  enabledSkills?: string[],
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
@@ -341,6 +364,8 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        workspacePath,
+        enabledSkills,
       },
       wrappedOnOutput,
     );
@@ -351,10 +376,7 @@ async function runAgent(
     }
 
     if (output.status === 'error') {
-      logger.error(
-        { group: group.name, error: output.error },
-        'Agent error',
-      );
+      logger.error({ group: group.name, error: output.error }, 'Agent error');
       return 'error';
     }
 
@@ -497,6 +519,9 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
 
+  // Initialize Star Office UI status reporter
+  initStatusReporter();
+
   restoreRemoteControl();
 
   // Graceful shutdown handlers
@@ -554,6 +579,12 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // Push status to Star Office UI when receiving a message
+      const group = registeredGroups[chatJid];
+      if (group) {
+        void pushStatus('writing', `收到 ${group.name} 的新消息...`);
+      }
+
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {

@@ -16,6 +16,7 @@ export interface NewMessage {
   timestamp: string;
   is_from_me?: boolean;
   is_bot_message?: boolean;
+  workspaceId?: string;
 }
 
 export interface ScheduledTask {
