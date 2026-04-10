@@ -20,6 +20,7 @@ import {
 import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
+import { pushStatus } from './star-office-reporter.js';
 
 // Sentinel markers for output parsing (consistent with container version)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -34,6 +35,8 @@ export interface AgentInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
+  workspacePath?: string;   // If set, overrides group folder as cwd
+  enabledSkills?: string[]; // Skills to inject into systemPrompt
 }
 
 export interface AgentOutput {
@@ -104,7 +107,9 @@ function getGroupWorkingDir(groupFolder: string): string {
 /**
  * Run a script for scheduled tasks
  */
-async function runScript(script: string): Promise<{ wakeAgent: boolean; data?: unknown } | null> {
+async function runScript(
+  script: string,
+): Promise<{ wakeAgent: boolean; data?: unknown } | null> {
   const scriptPath = '/tmp/task-script.sh';
   fs.writeFileSync(scriptPath, script, { mode: 0o755 });
 
@@ -142,7 +147,9 @@ async function runScript(script: string): Promise<{ wakeAgent: boolean; data?: u
           }
           resolve(result);
         } catch {
-          logger.warn(`Script output is not valid JSON: ${lastLine.slice(0, 200)}`);
+          logger.warn(
+            `Script output is not valid JSON: ${lastLine.slice(0, 200)}`,
+          );
           resolve(null);
         }
       },
@@ -162,7 +169,10 @@ function writeOutput(output: AgentOutput): void {
 /**
  * Get session summary from sessions index
  */
-function getSessionSummary(sessionId: string, transcriptPath: string): string | null {
+function getSessionSummary(
+  sessionId: string,
+  transcriptPath: string,
+): string | null {
   const projectDir = path.dirname(transcriptPath);
   const indexPath = path.join(projectDir, 'sessions-index.json');
 
@@ -171,7 +181,9 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
   }
 
   try {
-    const index: SessionsIndex = JSON.parse(fs.readFileSync(indexPath, 'utf-8'));
+    const index: SessionsIndex = JSON.parse(
+      fs.readFileSync(indexPath, 'utf-8'),
+    );
     const entry = index.entries.find((e) => e.sessionId === sessionId);
     return entry?.summary || null;
   } catch {
@@ -208,7 +220,9 @@ function formatTranscriptMarkdown(
   for (const msg of messages) {
     const sender = msg.role === 'user' ? 'User' : assistantName || 'Assistant';
     const content =
-      msg.content.length > 2000 ? msg.content.slice(0, 2000) + '...' : msg.content;
+      msg.content.length > 2000
+        ? msg.content.slice(0, 2000) + '...'
+        : msg.content;
     lines.push(`**${sender}**: ${content}`);
     lines.push('');
   }
@@ -219,7 +233,9 @@ function formatTranscriptMarkdown(
 /**
  * Parse transcript content into messages
  */
-function parseTranscript(content: string): Array<{ role: 'user' | 'assistant'; content: string }> {
+function parseTranscript(
+  content: string,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
 
   for (const line of content.split('\n')) {
@@ -275,7 +291,7 @@ export async function runAgentDirect(
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<AgentOutput> {
   const startTime = Date.now();
-  const groupDir = getGroupWorkingDir(input.groupFolder);
+  const groupDir = input.workspacePath || getGroupWorkingDir(input.groupFolder);
   const sessionsDir = ensureSessionsDir(input.groupFolder);
 
   logger.info(
@@ -287,6 +303,9 @@ export async function runAgentDirect(
     },
     'Starting agent',
   );
+
+  // Push status to Star Office UI
+  void pushStatus('executing', `正在为 ${group.name} 处理任务...`);
 
   // Build prompt
   let prompt = input.prompt;
@@ -300,7 +319,9 @@ export async function runAgentDirect(
     const scriptResult = await runScript(input.script);
 
     if (!scriptResult || !scriptResult.wakeAgent) {
-      const reason = scriptResult ? 'wakeAgent=false' : 'script error/no output';
+      const reason = scriptResult
+        ? 'wakeAgent=false'
+        : 'script error/no output';
       logger.info(`Script decided not to wake agent: ${reason}`);
       return { status: 'success', result: null };
     }
@@ -323,7 +344,9 @@ export async function runAgentDirect(
       // This will be replaced with actual channel message sending
     },
     scheduleTask: async (params: unknown) => {
-      logger.debug(`MCP schedule_task: ${JSON.stringify(params).slice(0, 100)}...`);
+      logger.debug(
+        `MCP schedule_task: ${JSON.stringify(params).slice(0, 100)}...`,
+      );
       // This will be replaced with actual task scheduling
     },
   };
@@ -379,7 +402,7 @@ export async function runAgentDirect(
   const checkInputFiles = () => {
     try {
       if (!fs.existsSync(inputDir)) return;
-      const files = fs.readdirSync(inputDir).filter(f => f.endsWith('.json'));
+      const files = fs.readdirSync(inputDir).filter((f) => f.endsWith('.json'));
       for (const file of files) {
         if (processedFiles.has(file)) continue;
         processedFiles.add(file);
@@ -388,7 +411,10 @@ export async function runAgentDirect(
         try {
           const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
           if (data.type === 'message' && data.text) {
-            logger.debug({ file }, 'IPC input message received, pushing to agent stream');
+            logger.debug(
+              { file },
+              'IPC input message received, pushing to agent stream',
+            );
             stream.push(data.text);
           }
           // Remove the file after processing
@@ -408,6 +434,20 @@ export async function runAgentDirect(
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     let sessionId = input.sessionId;
+    // Validate that the session transcript file exists before resuming.
+    // The Claude CLI exits with code 1 when --resume references a
+    // non-existent session, which breaks the agent loop.
+    if (sessionId) {
+      const sessionsDir = getGroupSessionsDir(input.groupFolder);
+      const transcriptPath = path.join(sessionsDir, `${sessionId}.jsonl`);
+      if (!fs.existsSync(transcriptPath)) {
+        logger.debug(
+          { sessionId, path: transcriptPath },
+          'Session transcript not found, skipping resume',
+        );
+        sessionId = undefined;
+      }
+    }
     let newSessionId: string | undefined;
     let lastAssistantUuid: string | undefined;
     let messageCount = 0;
@@ -419,10 +459,33 @@ export async function runAgentDirect(
     // Global CLAUDE.md for non-main groups
     let globalClaudeMd: string | undefined;
     if (!input.isMain && fs.existsSync(path.join(globalDir, 'CLAUDE.md'))) {
-      globalClaudeMd = fs.readFileSync(path.join(globalDir, 'CLAUDE.md'), 'utf-8');
+      globalClaudeMd = fs.readFileSync(
+        path.join(globalDir, 'CLAUDE.md'),
+        'utf-8',
+      );
     }
 
-    // Allowed tools
+    // Inject enabled skills into systemPrompt
+    let skillContent = '';
+    if (input.enabledSkills && input.enabledSkills.length > 0 && input.workspacePath) {
+      const MAX_SKILL_BYTES = 32 * 1024;
+      let totalBytes = 0;
+      for (const skillName of input.enabledSkills) {
+        const skillMdPath = path.join(input.workspacePath, '.claude', 'skills', skillName, 'SKILL.md');
+        if (fs.existsSync(skillMdPath)) {
+          const content = fs.readFileSync(skillMdPath, 'utf-8');
+          const wrapped = `\n<!-- SKILL: ${skillName} -->\n${content}\n<!-- END SKILL: ${skillName} -->\n`;
+          if (totalBytes + wrapped.length > MAX_SKILL_BYTES) break;
+          skillContent += wrapped;
+          totalBytes += wrapped.length;
+        }
+      }
+    }
+
+    const systemPrompt = (globalClaudeMd || 'You are a helpful AI assistant.') + skillContent;
+
+    // Allowed tools — only standard tools; MCP tool names are added
+    // dynamically when mcpServers is configured.
     const allowedTools = [
       'Bash',
       'Read',
@@ -442,20 +505,34 @@ export async function runAgentDirect(
       'ToolSearch',
       'Skill',
       'NotebookEdit',
-      // MCP tools
-      'mcp__nanoclaw__send_message',
-      'mcp__nanoclaw__schedule_task',
-      'mcp__nanoclaw__list_tasks',
-      'mcp__nanoclaw__pause_task',
-      'mcp__nanoclaw__resume_task',
-      'mcp__nanoclaw__cancel_task',
-      'mcp__nanoclaw__update_task',
-      'mcp__nanoclaw__register_group',
     ];
 
     // MCP server configuration
     const distDir = path.dirname(fileURLToPath(import.meta.url));
     const mcpServerPath = path.join(distDir, 'mcp-stdio.js');
+
+    // Build MCP config: only enable when the server binary exists
+    let mcpServersConfig: Record<string, unknown> | undefined;
+    if (fs.existsSync(mcpServerPath)) {
+      mcpServersConfig = {
+        nanoclaw: {
+          command: process.execPath,
+          args: [mcpServerPath],
+          env: { ...process.env },
+        },
+      };
+      // Add MCP tools to allowed list only when MCP is active
+      allowedTools.push(
+        'mcp__nanoclaw__send_message',
+        'mcp__nanoclaw__schedule_task',
+        'mcp__nanoclaw__list_tasks',
+        'mcp__nanoclaw__pause_task',
+        'mcp__nanoclaw__resume_task',
+        'mcp__nanoclaw__cancel_task',
+        'mcp__nanoclaw__update_task',
+        'mcp__nanoclaw__register_group',
+      );
+    }
 
     // Build environment for SDK (includes LLM credentials if using third-party)
     const sdkEnv: Record<string, string | undefined> = {
@@ -478,25 +555,17 @@ export async function runAgentDirect(
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
         resumeSessionAt: undefined,
-        systemPrompt: globalClaudeMd
-          ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
-          : undefined,
+        systemPrompt: systemPrompt,
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         settingSources: ['project', 'user'],
-        mcpServers: {
-          nanoclaw: {
-            command: process.execPath,
-            args: [mcpServerPath],
-            env: {
-              NANOCLAW_CHAT_JID: input.chatJid,
-              NANOCLAW_GROUP_FOLDER: input.groupFolder,
-              NANOCLAW_IS_MAIN: input.isMain ? '1' : '0',
-              NANOCLAW_DATA_DIR: DATA_DIR,
-            },
-          },
+        pathToClaudeCodeExecutable: '/opt/homebrew/bin/claude',
+        stderr: (data) => {
+          const stderrStr = typeof data === 'string' ? data : String(data);
+          logger.debug(`Claude stderr: ${stderrStr.slice(0, 500)}`);
         },
+        mcpServers: mcpServersConfig,
       },
     })) {
       messageCount++;
@@ -515,16 +584,27 @@ export async function runAgentDirect(
         logger.debug(`Session initialized: ${newSessionId}`);
       }
 
-      if (message.type === 'system' && (message as { subtype?: string }).subtype === 'task_notification') {
-        const tn = message as unknown as { task_id: string; status: string; summary: string };
-        logger.debug(`Task notification: task=${tn.task_id} status=${tn.status}`);
+      if (
+        message.type === 'system' &&
+        (message as { subtype?: string }).subtype === 'task_notification'
+      ) {
+        const tn = message as unknown as {
+          task_id: string;
+          status: string;
+          summary: string;
+        };
+        logger.debug(
+          `Task notification: task=${tn.task_id} status=${tn.status}`,
+        );
       }
 
       if (message.type === 'result') {
         resultCount++;
         const textResult =
           'result' in message ? (message as { result?: string }).result : null;
-        logger.debug(`Result #${resultCount}: ${textResult ? textResult.slice(0, 200) : 'null'}`);
+        logger.debug(
+          `Result #${resultCount}: ${textResult ? textResult.slice(0, 200) : 'null'}`,
+        );
 
         const output: AgentOutput = {
           status: 'success',
@@ -556,6 +636,9 @@ export async function runAgentDirect(
       stream.end();
     }
 
+    // Push idle status to Star Office UI
+    void pushStatus('idle', '任务完成，待命中...');
+
     return {
       status: 'success',
       result: null,
@@ -564,6 +647,9 @@ export async function runAgentDirect(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ group: group.name, error: errorMessage }, 'Agent error');
+
+    // Push error status to Star Office UI
+    void pushStatus('error', '任务执行出错，排查中...');
 
     // Cleanup input watcher on error
     if (inputCheckInterval) {
@@ -600,7 +686,9 @@ export function writeTasksSnapshot(
   const ipcDir = path.join(DATA_DIR, 'ipc', groupFolder);
   fs.mkdirSync(ipcDir, { recursive: true });
 
-  const filteredTasks = isMain ? tasks : tasks.filter((t) => t.groupFolder === groupFolder);
+  const filteredTasks = isMain
+    ? tasks
+    : tasks.filter((t) => t.groupFolder === groupFolder);
   const tasksFile = path.join(ipcDir, 'current_tasks.json');
   fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
 }
