@@ -11,7 +11,17 @@ import type { Skill, Workspace } from './types.js';
 // Note: /var is excluded from this list because on macOS, /var is a symlink to /private/var
 // and the user temp directory is typically /var/folders/... (realpath: /private/var/folders/...).
 // Including /var would reject all temp directories on macOS.
-const SYSTEM_DIRS = ['/etc', '/System', '/usr', '/bin', '/sbin', '/lib', '/dev', '/proc', '/sys'];
+const SYSTEM_DIRS = [
+  '/etc',
+  '/System',
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/dev',
+  '/proc',
+  '/sys',
+];
 
 const CLAUDE_MD_TEMPLATE = `# Workspace
 
@@ -35,14 +45,18 @@ export function validateWorkspacePath(inputPath: string): void {
 
   // Reject path traversal segments (check before normalization)
   if (inputPath.includes('..')) {
-    throw new Error(`Workspace path must not contain ".." segments: ${inputPath}`);
+    throw new Error(
+      `Workspace path must not contain ".." segments: ${inputPath}`,
+    );
   }
 
   // Reject system directories — check the input path (before symlink resolution)
   const normalized = path.normalize(inputPath);
   for (const sysDir of SYSTEM_DIRS) {
     if (normalized === sysDir || normalized.startsWith(sysDir + '/')) {
-      throw new Error(`Workspace path cannot be in system directory: ${sysDir}`);
+      throw new Error(
+        `Workspace path cannot be in system directory: ${sysDir}`,
+      );
     }
   }
 
@@ -57,7 +71,9 @@ export function validateWorkspacePath(inputPath: string): void {
   // Also check resolved path against system directories (catches symlinks into system dirs)
   for (const sysDir of SYSTEM_DIRS) {
     if (realpath === sysDir || realpath.startsWith(sysDir + '/')) {
-      throw new Error(`Workspace path cannot be in system directory: ${sysDir}`);
+      throw new Error(
+        `Workspace path cannot be in system directory: ${sysDir}`,
+      );
     }
   }
 
@@ -94,7 +110,10 @@ function rowToWorkspace(row: {
  * Add a new workspace. Validates the path, checks for duplicates,
  * auto-creates CLAUDE.md if missing, and inserts into the database.
  */
-export function addWorkspace(db: Database.Database, dirPath: string): Workspace {
+export function addWorkspace(
+  db: Database.Database,
+  dirPath: string,
+): Workspace {
   // Resolve symlinks for consistent path comparison
   const resolvedPath = fs.realpathSync(path.resolve(dirPath));
 
@@ -178,7 +197,10 @@ export function listWorkspaces(db: Database.Database): Workspace[] {
 /**
  * Get a workspace by ID.
  */
-export function getWorkspace(db: Database.Database, id: string): Workspace | null {
+export function getWorkspace(
+  db: Database.Database,
+  id: string,
+): Workspace | null {
   const row = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id) as
     | {
         id: string;
@@ -195,14 +217,19 @@ export function getWorkspace(db: Database.Database, id: string): Workspace | nul
 /**
  * Get a workspace by its filesystem path.
  */
-export function getWorkspaceByPath(db: Database.Database, wsPath: string): Workspace | null {
+export function getWorkspaceByPath(
+  db: Database.Database,
+  wsPath: string,
+): Workspace | null {
   let resolved: string;
   try {
     resolved = fs.realpathSync(path.resolve(wsPath));
   } catch {
     return null;
   }
-  const row = db.prepare('SELECT * FROM workspaces WHERE path = ?').get(resolved) as
+  const row = db
+    .prepare('SELECT * FROM workspaces WHERE path = ?')
+    .get(resolved) as
     | {
         id: string;
         name: string;
@@ -228,7 +255,11 @@ export function updateLastUsed(db: Database.Database, id: string): void {
 /**
  * Set the enabled skills list for a workspace.
  */
-export function setEnabledSkills(db: Database.Database, id: string, skills: string[]): void {
+export function setEnabledSkills(
+  db: Database.Database,
+  id: string,
+  skills: string[],
+): void {
   db.prepare('UPDATE workspaces SET enabled_skills = ? WHERE id = ?').run(
     JSON.stringify(skills),
     id,
@@ -274,7 +305,10 @@ export function writeClaudeMd(workspacePath: string, content: string): void {
  * Scan the .claude/skills/ directory for available skills.
  * Returns all found skills, marking which are enabled and which have SKILL.md files.
  */
-export function scanSkills(workspacePath: string, enabledSkills: string[]): Skill[] {
+export function scanSkills(
+  workspacePath: string,
+  enabledSkills: string[],
+): Skill[] {
   const skillsDir = path.join(workspacePath, '.claude', 'skills');
   const skills: Skill[] = [];
 
@@ -326,8 +360,17 @@ export function scanSkills(workspacePath: string, enabledSkills: string[]): Skil
 /**
  * Read the content of a skill's SKILL.md file.
  */
-export function readSkillFile(workspacePath: string, skillName: string): string {
-  const filePath = path.join(workspacePath, '.claude', 'skills', skillName, 'SKILL.md');
+export function readSkillFile(
+  workspacePath: string,
+  skillName: string,
+): string {
+  const filePath = path.join(
+    workspacePath,
+    '.claude',
+    'skills',
+    skillName,
+    'SKILL.md',
+  );
   try {
     return fs.readFileSync(filePath, 'utf-8');
   } catch {
@@ -339,7 +382,11 @@ export function readSkillFile(workspacePath: string, skillName: string): string 
  * Write content to a skill's SKILL.md file.
  * Creates the skill directory if it doesn't exist.
  */
-export function writeSkillFile(workspacePath: string, skillName: string, content: string): void {
+export function writeSkillFile(
+  workspacePath: string,
+  skillName: string,
+  content: string,
+): void {
   const skillDir = path.join(workspacePath, '.claude', 'skills', skillName);
   fs.mkdirSync(skillDir, { recursive: true });
   const filePath = path.join(skillDir, 'SKILL.md');
@@ -376,14 +423,18 @@ export async function openFolderPicker(): Promise<string | null> {
   if (platform === 'linux') {
     const { execFile } = await import('child_process');
     return new Promise((resolve) => {
-      execFile('zenity', ['--file-selection', '--directory', '--title=Select workspace folder'], (err, stdout) => {
-        if (err) {
-          resolve(null);
-          return;
-        }
-        const result = stdout.trim();
-        resolve(result || null);
-      });
+      execFile(
+        'zenity',
+        ['--file-selection', '--directory', '--title=Select workspace folder'],
+        (err, stdout) => {
+          if (err) {
+            resolve(null);
+            return;
+          }
+          const result = stdout.trim();
+          resolve(result || null);
+        },
+      );
     });
   }
 

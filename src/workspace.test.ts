@@ -55,14 +55,18 @@ describe('validateWorkspacePath', () => {
   it('rejects system directories', () => {
     expect(() => validateWorkspacePath('/etc')).toThrow('system directory');
     expect(() => validateWorkspacePath('/usr')).toThrow('system directory');
-    expect(() => validateWorkspacePath('/etc/something')).toThrow('system directory');
-    expect(() => validateWorkspacePath('/usr/local')).toThrow('system directory');
+    expect(() => validateWorkspacePath('/etc/something')).toThrow(
+      'system directory',
+    );
+    expect(() => validateWorkspacePath('/usr/local')).toThrow(
+      'system directory',
+    );
   });
 
   it('rejects non-existent paths', () => {
-    expect(() =>
-      validateWorkspacePath('/this/path/does/not/exist'),
-    ).toThrow('does not exist');
+    expect(() => validateWorkspacePath('/this/path/does/not/exist')).toThrow(
+      'does not exist',
+    );
   });
 
   it('rejects file paths (not directory)', () => {
@@ -324,7 +328,13 @@ describe('readSkillFile / writeSkillFile', () => {
     expect(readSkillFile(tempDir, 'my-skill')).toBe(content);
 
     // Verify the file exists in the right place
-    const skillMdPath = path.join(tempDir, '.claude', 'skills', 'my-skill', 'SKILL.md');
+    const skillMdPath = path.join(
+      tempDir,
+      '.claude',
+      'skills',
+      'my-skill',
+      'SKILL.md',
+    );
     expect(fs.existsSync(skillMdPath)).toBe(true);
   });
 });
