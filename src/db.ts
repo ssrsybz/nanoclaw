@@ -14,6 +14,17 @@ import {
 
 let db: Database.Database;
 
+/**
+ * Get the initialized database instance.
+ * Throws if called before initDatabase().
+ */
+export function getDb(): Database.Database {
+  if (!db) {
+    throw new Error('Database not initialized. Call initDatabase() first.');
+  }
+  return db;
+}
+
 function createSchema(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS chats (
