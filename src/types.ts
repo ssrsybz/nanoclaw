@@ -71,3 +71,22 @@ export type OnChatMetadata = (
   channel?: string,
   isGroup?: boolean,
 ) => void;
+
+// --- Workspace & Skill types ---
+
+export interface Workspace {
+  id: string;
+  name: string;
+  path: string;
+  enabledSkills: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface Skill {
+  name: string;
+  description: string;
+  path: string;
+  enabled: boolean;
+  hasSkillMd: boolean;
+}
