@@ -379,6 +379,184 @@ export class WebChannel implements Channel {
         return;
       }
 
+      // Import conversation helpers
+      const {
+        createConversation,
+        getConversationsByWorkspace,
+        getConversation,
+        updateConversation,
+        deleteConversation,
+        addConversationMessage,
+        getConversationMessages,
+      } = await import('../db.js');
+
+      // Route: GET /api/workspaces/:id/conversations
+      const convListMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/conversations$/,
+      );
+      if (convListMatch && method === 'GET') {
+        const workspaceId = convListMatch[1];
+        const ws = workspace.getWorkspace(db, workspaceId);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        const conversations = getConversationsByWorkspace(db, workspaceId);
+        sendJson(200, {
+          conversations: conversations.map((c) => ({
+            id: c.id,
+            workspaceId: c.workspace_id,
+            name: c.name,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+          })),
+        });
+        return;
+      }
+
+      // Route: POST /api/workspaces/:id/conversations
+      if (convListMatch && method === 'POST') {
+        const workspaceId = convListMatch[1];
+        const ws = workspace.getWorkspace(db, workspaceId);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        const conversation = createConversation(db, workspaceId);
+        sendJson(201, {
+          conversation: {
+            id: conversation.id,
+            workspaceId: conversation.workspace_id,
+            name: conversation.name,
+            createdAt: conversation.created_at,
+            updatedAt: conversation.updated_at,
+          },
+        });
+        return;
+      }
+
+      // Route: /api/workspaces/:id/conversations/:convId
+      const convDetailMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/conversations\/([^/]+)$/,
+      );
+      if (convDetailMatch) {
+        const workspaceId = convDetailMatch[1];
+        const convId = convDetailMatch[2];
+        const ws = workspace.getWorkspace(db, workspaceId);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        const conversation = getConversation(db, convId);
+        if (!conversation || conversation.workspace_id !== workspaceId) {
+          sendError(404, 'Conversation not found');
+          return;
+        }
+
+        if (method === 'GET') {
+          sendJson(200, {
+            conversation: {
+              id: conversation.id,
+              workspaceId: conversation.workspace_id,
+              name: conversation.name,
+              createdAt: conversation.created_at,
+              updatedAt: conversation.updated_at,
+            },
+          });
+          return;
+        }
+
+        if (method === 'PUT') {
+          const body = JSON.parse(await readBody());
+          if (typeof body.name !== 'string') {
+            sendError(400, 'Missing required field: name');
+            return;
+          }
+          updateConversation(db, convId, body.name);
+          const updated = getConversation(db, convId);
+          sendJson(200, {
+            conversation: {
+              id: updated!.id,
+              workspaceId: updated!.workspace_id,
+              name: updated!.name,
+              createdAt: updated!.created_at,
+              updatedAt: updated!.updated_at,
+            },
+          });
+          return;
+        }
+
+        if (method === 'DELETE') {
+          deleteConversation(db, convId);
+          sendJson(200, { ok: true });
+          return;
+        }
+      }
+
+      // Route: /api/workspaces/:id/conversations/:convId/messages
+      const convMsgMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/conversations\/([^/]+)\/messages$/,
+      );
+      if (convMsgMatch) {
+        const workspaceId = convMsgMatch[1];
+        const convId = convMsgMatch[2];
+        const ws = workspace.getWorkspace(db, workspaceId);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        const conversation = getConversation(db, convId);
+        if (!conversation || conversation.workspace_id !== workspaceId) {
+          sendError(404, 'Conversation not found');
+          return;
+        }
+
+        if (method === 'GET') {
+          const url = new URL(req.url!, 'http://localhost');
+          const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+          const before = url.searchParams.get('before') || undefined;
+          const messages = getConversationMessages(db, convId, limit, before);
+          sendJson(200, {
+            messages: messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              parts: m.parts ? JSON.parse(m.parts) : null,
+              createdAt: m.created_at,
+            })),
+            hasMore: messages.length === limit,
+            nextCursor: messages.length > 0 ? messages[messages.length - 1].created_at : null,
+          });
+          return;
+        }
+
+        if (method === 'POST') {
+          const body = JSON.parse(await readBody());
+          if (typeof body.content !== 'string') {
+            sendError(400, 'Missing required field: content');
+            return;
+          }
+          const parts = body.parts ? JSON.stringify(body.parts) : undefined;
+          const message = addConversationMessage(
+            db,
+            convId,
+            body.role || 'user',
+            body.content,
+            parts,
+          );
+          sendJson(201, {
+            message: {
+              id: message.id,
+              role: message.role,
+              content: message.content,
+              parts: message.parts ? JSON.parse(message.parts) : null,
+              createdAt: message.created_at,
+            },
+          });
+          return;
+        }
+      }
+
       // No matching API route
       sendError(404, 'Not found');
     } catch (err) {
@@ -502,7 +680,10 @@ export class WebChannel implements Channel {
     // Otherwise broadcast to all clients (legacy behavior)
     if (conversationId) {
       for (const [client, clientConvId] of this.clientConversationIds) {
-        if (clientConvId === conversationId && client.readyState === WebSocket.OPEN) {
+        if (
+          clientConvId === conversationId &&
+          client.readyState === WebSocket.OPEN
+        ) {
           this.sendToClient(client, msg);
         }
       }
