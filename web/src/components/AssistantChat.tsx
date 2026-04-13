@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
-  ComposerPrimitive,
 } from '@assistant-ui/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -153,22 +152,59 @@ function AssistantMessage({ content, parts }: { content: string; parts?: Content
 }
 
 function Composer() {
+  const [input, setInput] = useState('');
+  const [isComposing, setIsComposing] = useState(false);
+  const typing = useStore((s) => s.typing);
+
+  const handleSend = () => {
+    if (!input.trim() || typing || isComposing) return;
+    const content = input.trim();
+    setInput('');
+    window.dispatchEvent(new CustomEvent('nanoclaw-send', { detail: { content } }));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // 支持回车发送，但 Shift+Enter 换行
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const handleCompositionStart = () => setIsComposing(true);
+  const handleCompositionEnd = () => setIsComposing(false);
+
   return (
     <div className="px-4 py-3 border-t border-white/10">
-      <ComposerPrimitive.Root className="flex items-end gap-2 bg-[#16213e] rounded-xl border border-white/10 px-3 py-2 focus-within:border-indigo-500">
-        <ComposerPrimitive.Input
-          placeholder="Type a message..."
+      <div className="flex items-end gap-2 bg-[#16213e] rounded-xl border border-white/10 px-3 py-2 focus-within:border-indigo-500">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
+          placeholder="输入消息..."
           className="flex-1 bg-transparent text-white text-sm resize-none focus:outline-none placeholder:text-white/20 max-h-[150px] py-1"
           rows={1}
         />
-        <ComposerPrimitive.Send className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm transition-colors flex-shrink-0">
-          Send
-        </ComposerPrimitive.Send>
-        <ComposerPrimitive.Cancel className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm transition-colors flex-shrink-0">
-          Stop
-        </ComposerPrimitive.Cancel>
-      </ComposerPrimitive.Root>
-      <p className="text-[10px] text-white/20 mt-1 text-center">Ctrl+Enter to send</p>
+        {typing ? (
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('nanoclaw-cancel'))}
+            className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm transition-colors flex-shrink-0"
+          >
+            Stop
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={!input.trim()}
+            className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm transition-colors flex-shrink-0"
+          >
+            Send
+          </button>
+        )}
+      </div>
+      <p className="text-[10px] text-white/20 mt-1 text-center">Enter 发送 · Shift+Enter 换行</p>
     </div>
   );
 }
