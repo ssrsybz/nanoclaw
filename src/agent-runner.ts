@@ -74,9 +74,17 @@ const SCRIPT_TIMEOUT_MS = 30_000;
  * When workspaceId is provided, sessions are namespaced per workspace:
  * data/sessions/{groupFolder}--ws-{workspaceId}/.claude
  */
-function getGroupSessionsDir(groupFolder: string, workspaceId?: string): string {
+function getGroupSessionsDir(
+  groupFolder: string,
+  workspaceId?: string,
+): string {
   if (workspaceId) {
-    return path.join(DATA_DIR, 'sessions', `${groupFolder}--ws-${workspaceId}`, '.claude');
+    return path.join(
+      DATA_DIR,
+      'sessions',
+      `${groupFolder}--ws-${workspaceId}`,
+      '.claude',
+    );
   }
   return path.join(DATA_DIR, 'sessions', groupFolder, '.claude');
 }
@@ -454,7 +462,10 @@ export async function runAgentDirect(
     // The Claude CLI exits with code 1 when --resume references a
     // non-existent session, which breaks the agent loop.
     if (sessionId) {
-      const sessionsDir = getGroupSessionsDir(input.groupFolder, input.workspaceId);
+      const sessionsDir = getGroupSessionsDir(
+        input.groupFolder,
+        input.workspaceId,
+      );
       const transcriptPath = path.join(sessionsDir, `${sessionId}.jsonl`);
       if (!fs.existsSync(transcriptPath)) {
         logger.debug(
