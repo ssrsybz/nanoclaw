@@ -225,8 +225,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     workspaceId = withWorkspace.workspaceId;
     const ws = getWorkspace(getDb(), workspaceId);
     if (ws) {
-      workspacePath = ws.path;
-      enabledSkills = ws.enabledSkills;
+      // Validate that the workspace directory exists before using it
+      if (fs.existsSync(ws.path) && fs.statSync(ws.path).isDirectory()) {
+        workspacePath = ws.path;
+        enabledSkills = ws.enabledSkills;
+      } else {
+        // Workspace directory doesn't exist, fall back to default group folder
+        logger.warn(
+          { workspaceId, workspacePath: ws.path },
+          'Workspace directory not found, using default group folder',
+        );
+        workspaceId = undefined;
+      }
     }
   }
 

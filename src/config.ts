@@ -11,6 +11,7 @@ const envConfig = readEnvFile([
   'TZ',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
   'MODEL',
 ]);
 
@@ -81,5 +82,7 @@ export const ANTHROPIC_API_KEY =
   process.env.ANTHROPIC_API_KEY || envConfig.ANTHROPIC_API_KEY;
 export const ANTHROPIC_BASE_URL =
   process.env.ANTHROPIC_BASE_URL || envConfig.ANTHROPIC_BASE_URL;
+export const ANTHROPIC_AUTH_TOKEN =
+  process.env.ANTHROPIC_AUTH_TOKEN || envConfig.ANTHROPIC_AUTH_TOKEN;
 export const MODEL =
   process.env.MODEL || envConfig.MODEL || 'claude-sonnet-4-5-20250929';

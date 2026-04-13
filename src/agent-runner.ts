@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import {
   ANTHROPIC_API_KEY,
   ANTHROPIC_BASE_URL,
+  ANTHROPIC_AUTH_TOKEN,
   ASSISTANT_NAME,
   DATA_DIR,
   GROUPS_DIR,
@@ -573,19 +574,24 @@ export async function runAgentDirect(
     }
 
     // Build environment for SDK (includes LLM credentials if using third-party)
+    // NOTE: SDK reads ANTHROPIC_BASE_URL directly from process.env, not from options.env
+    if (ANTHROPIC_API_KEY) {
+      process.env.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY;
+    }
+    if (ANTHROPIC_BASE_URL) {
+      process.env.ANTHROPIC_BASE_URL = ANTHROPIC_BASE_URL;
+    }
+    if (ANTHROPIC_AUTH_TOKEN) {
+      process.env.ANTHROPIC_AUTH_TOKEN = ANTHROPIC_AUTH_TOKEN;
+    }
+
     const sdkEnv: Record<string, string | undefined> = {
       ...process.env,
     };
-    if (ANTHROPIC_API_KEY) {
-      sdkEnv.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY;
-    }
-    if (ANTHROPIC_BASE_URL) {
-      sdkEnv.ANTHROPIC_BASE_URL = ANTHROPIC_BASE_URL;
-    }
 
     // Run the query
     for await (const message of query({
-      prompt: stream,
+      prompt: prompt,
       options: {
         model: MODEL,
         env: sdkEnv,
