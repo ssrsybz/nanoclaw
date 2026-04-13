@@ -17,57 +17,102 @@ export interface Skill {
   hasSkillMd: boolean;
 }
 
+export interface Conversation {
+  id: string;
+  workspaceId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Rich message content parts
+export interface TextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ThinkingPart {
+  type: 'thinking';
+  text: string;
+}
+
+export interface ToolUsePart {
+  type: 'tool_use';
+  toolName: string;
+  toolInput?: string;
+}
+
+export type ContentPart = TextPart | ThinkingPart | ToolUsePart;
+
 export interface ChatMessage {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
+  // Rich content parts for assistant messages
+  parts?: ContentPart[];
 }
 
 interface WorkspaceStore {
+  // Workspace state
   workspaces: Workspace[];
   activeWorkspaceId: string | null;
-  skills: Skill[];
-  connected: boolean;
+
+  // Conversation state (keyed by workspaceId)
+  conversations: Record<string, Conversation[]>;
+  activeConversationId: string | null;
+
+  // Messages (keyed by conversationId)
   messages: Record<string, ChatMessage[]>;
+
+  // Skills
+  skills: Skill[];
+
+  // Connection state
+  connected: boolean;
   typing: boolean;
 
+  // Workspace methods
   setConnected: (v: boolean) => void;
-  setTyping: (v: boolean) => void;
-  appendMessage: (workspaceId: string, msg: ChatMessage) => void;
-  clearMessages: (workspaceId: string) => void;
   fetchWorkspaces: () => Promise<void>;
   addWorkspace: () => Promise<void>;
   removeWorkspace: (id: string) => Promise<void>;
   switchWorkspace: (id: string) => Promise<void>;
+
+  // Skill methods
   fetchSkills: () => Promise<void>;
   toggleSkill: (skillName: string) => Promise<void>;
+
+  // Conversation methods
+  fetchConversations: (workspaceId: string) => Promise<void>;
+  createConversation: (workspaceId: string) => Promise<Conversation | null>;
+  switchConversation: (conversationId: string) => void;
+  renameConversation: (workspaceId: string, id: string, name: string) => Promise<void>;
+  deleteConversation: (workspaceId: string, id: string) => Promise<void>;
+
+  // Message methods
+  setTyping: (v: boolean) => void;
+  appendMessage: (conversationId: string, msg: ChatMessage) => void;
+  /** Append a content part to the last assistant message */
+  appendPart: (conversationId: string, part: ContentPart) => void;
+  clearMessages: (conversationId: string) => void;
 }
 
 export const useStore = create<WorkspaceStore>((set, get) => ({
+  // Initial state
   workspaces: [],
   activeWorkspaceId: null,
+  conversations: {},
+  activeConversationId: null,
+  messages: {},
   skills: [],
   connected: false,
-  messages: {},
   typing: false,
 
+  // Connection state
   setConnected: (v) => set({ connected: v }),
   setTyping: (v) => set({ typing: v }),
 
-  appendMessage: (workspaceId, msg) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [workspaceId]: [...(state.messages[workspaceId] || []), msg],
-      },
-    })),
-
-  clearMessages: (workspaceId) =>
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [workspaceId]: [],
-      },
-    })),
+  // --- Workspace methods ---
 
   fetchWorkspaces: async () => {
     try {
@@ -91,15 +136,24 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
         body: JSON.stringify({ path: pickerData.path }),
       });
       const data = await res.json();
-      if (data.workspace) {
+      if (!res.ok) {
+        alert(data.error || '添加工作空间失败');
+        return;
+      }
+      if (data.workspace || data.id) {
+        const ws = data.workspace || data;
         set((state) => ({
-          workspaces: [...state.workspaces, data.workspace],
-          activeWorkspaceId: data.workspace.id,
+          workspaces: [...state.workspaces, ws],
+          activeWorkspaceId: ws.id,
+          activeConversationId: null,
+          messages: {},
         }));
         await get().fetchSkills();
+        await get().createConversation(ws.id);
       }
     } catch (err) {
       console.error('Failed to add workspace:', err);
+      alert('添加工作空间失败: ' + (err instanceof Error ? err.message : String(err)));
     }
   },
 
@@ -109,10 +163,14 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       set((state) => {
         const newWorkspaces = state.workspaces.filter((w) => w.id !== id);
         const isActive = state.activeWorkspaceId === id;
+        const { [id]: _, ...restConversations } = state.conversations;
         return {
           workspaces: newWorkspaces,
           activeWorkspaceId: isActive ? null : state.activeWorkspaceId,
+          conversations: restConversations,
+          activeConversationId: isActive ? null : state.activeConversationId,
           skills: isActive ? [] : state.skills,
+          messages: isActive ? {} : state.messages,
         };
       });
     } catch (err) {
@@ -121,14 +179,24 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
   },
 
   switchWorkspace: async (id) => {
-    set({ activeWorkspaceId: id });
+    set({ activeWorkspaceId: id, activeConversationId: null, messages: {} });
     try {
       await fetch(`/api/workspaces/${id}/last-used`, { method: 'PUT' });
     } catch {
       // non-critical
     }
     await get().fetchSkills();
+    await get().fetchConversations(id);
+    // Auto-select first conversation or create new
+    const convs = get().conversations[id];
+    if (convs && convs.length > 0) {
+      set({ activeConversationId: convs[0].id });
+    } else {
+      await get().createConversation(id);
+    }
   },
+
+  // --- Skill methods ---
 
   fetchSkills: async () => {
     const { activeWorkspaceId } = get();
@@ -165,4 +233,138 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       set({ skills });
     }
   },
+
+  // --- Conversation methods ---
+
+  fetchConversations: async (workspaceId) => {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/conversations`);
+      const data = await res.json();
+      set((state) => ({
+        conversations: {
+          ...state.conversations,
+          [workspaceId]: data.conversations || [],
+        },
+      }));
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err);
+    }
+  },
+
+  createConversation: async (workspaceId) => {
+    try {
+      const res = await fetch(`/api/workspaces/${workspaceId}/conversations`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.conversation) {
+        const conv = data.conversation;
+        set((state) => ({
+          conversations: {
+            ...state.conversations,
+            [workspaceId]: [...(state.conversations[workspaceId] || []), conv],
+          },
+          activeConversationId: conv.id,
+          messages: {
+            ...state.messages,
+            [conv.id]: [],
+          },
+        }));
+        return conv;
+      }
+    } catch (err) {
+      console.error('Failed to create conversation:', err);
+    }
+    return null;
+  },
+
+  switchConversation: (conversationId) => {
+    set({ activeConversationId: conversationId });
+  },
+
+  renameConversation: async (workspaceId, id, name) => {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/conversations/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      set((state) => ({
+        conversations: {
+          ...state.conversations,
+          [workspaceId]: state.conversations[workspaceId]?.map((c) =>
+            c.id === id ? { ...c, name } : c
+          ) || [],
+        },
+      }));
+    } catch (err) {
+      console.error('Failed to rename conversation:', err);
+    }
+  },
+
+  deleteConversation: async (workspaceId, id) => {
+    try {
+      await fetch(`/api/workspaces/${workspaceId}/conversations/${id}`, {
+        method: 'DELETE',
+      });
+      set((state) => {
+        const { [id]: _, ...restMessages } = state.messages;
+        const newConversations = state.conversations[workspaceId]?.filter((c) => c.id !== id) || [];
+        return {
+          conversations: {
+            ...state.conversations,
+            [workspaceId]: newConversations,
+          },
+          messages: restMessages,
+          activeConversationId:
+            state.activeConversationId === id ? newConversations[0]?.id || null : state.activeConversationId,
+        };
+      });
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+    }
+  },
+
+  // --- Message methods ---
+
+  appendMessage: (conversationId, msg) =>
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [conversationId]: [...(state.messages[conversationId] || []), msg],
+      },
+    })),
+
+  appendPart: (conversationId, part) =>
+    set((state) => {
+      const msgs = state.messages[conversationId] || [];
+      if (msgs.length === 0) return state;
+
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg.role !== 'assistant') return state;
+
+      const updatedParts = [...(lastMsg.parts || []), part];
+      const updatedContent =
+        part.type === 'text'
+          ? (lastMsg.content || '') + part.text
+          : lastMsg.content;
+
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [
+            ...msgs.slice(0, -1),
+            { ...lastMsg, content: updatedContent, parts: updatedParts },
+          ],
+        },
+      };
+    }),
+
+  clearMessages: (conversationId) =>
+    set((state) => ({
+      messages: {
+        ...state.messages,
+        [conversationId]: [],
+      },
+    })),
 }));
