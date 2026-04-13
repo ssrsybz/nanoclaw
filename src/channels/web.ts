@@ -311,7 +311,7 @@ export class WebChannel implements Channel {
         }
         const enabledSkills = workspace.getEnabledSkills(db, id);
         const skills = workspace.scanSkills(ws.path, enabledSkills);
-        sendJson(200, skills);
+        sendJson(200, { skills });
         return;
       }
 

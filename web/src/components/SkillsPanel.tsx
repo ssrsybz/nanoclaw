@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import EditModal from './EditModal';
 
@@ -7,6 +7,13 @@ export default function SkillsPanel() {
   const [editTarget, setEditTarget] = useState<string | null>(null); // null = CLAUDE.md, string = skill name
   const [showEdit, setShowEdit] = useState(false);
   const [hoveredSkill, setHoveredSkill] = useState<string | null>(null);
+
+  // Fetch skills when workspace changes
+  useEffect(() => {
+    if (activeWorkspaceId) {
+      fetchSkills();
+    }
+  }, [activeWorkspaceId, fetchSkills]);
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
 
