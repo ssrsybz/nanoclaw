@@ -31,7 +31,7 @@ CREATE TABLE conversations (
   name TEXT NOT NULL DEFAULT '新对话',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id)
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 
 -- Conversation messages table
@@ -40,16 +40,42 @@ CREATE TABLE conversation_messages (
   conversation_id TEXT NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
   content TEXT NOT NULL,
-  parts TEXT,  -- JSON array of rich content parts
+  parts TEXT,  -- JSON: [{"type": "text"|"thinking"|"tool_use", "text"|"thinking"|"toolName"|"toolInput": ...}]
   created_at TEXT NOT NULL,
-  FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_workspace ON conversations(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversation_messages(conversation_id);
 ```
 
+**Schema Notes:**
+- `updated_at` is updated on any message sent OR on rename
+- `parts` stores rich content as JSON array (see ContentPart types below)
+- `ON DELETE CASCADE`: deleting a conversation deletes all its messages
+
+### Session Lifecycle
+
+| State | `session_id` | Behavior |
+|-------|--------------|----------|
+| Conversation created | `NULL` | No session yet |
+| First message sent | Created | New session started |
+| Session transcript lost | `NULL` | Orphaned - creates new session on next message |
+| Conversation deleted | N/A | Session file remains on disk (acceptable) |
+
+### ContentPart JSON Structure
+
+```typescript
+type ContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
+  | { type: 'tool_use'; toolName: string; toolInput?: string }
+  | { type: 'tool_result'; text: string };
+```
+
 ## API Design
+
+All conversation endpoints are nested under workspaces to respect resource hierarchy.
 
 ### Endpoints
 
@@ -57,11 +83,11 @@ CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversatio
 |----------|--------|-------------|
 | `/api/workspaces/:id/conversations` | GET | List all conversations in workspace |
 | `/api/workspaces/:id/conversations` | POST | Create new conversation |
-| `/api/conversations/:id` | GET | Get conversation details |
-| `/api/conversations/:id` | PUT | Update conversation (name) |
-| `/api/conversations/:id` | DELETE | Delete conversation |
-| `/api/conversations/:id/messages` | GET | Get all messages in conversation |
-| `/api/conversations/:id/messages` | POST | Send message to conversation (legacy fallback) |
+| `/api/workspaces/:id/conversations/:convId` | GET | Get conversation details |
+| `/api/workspaces/:id/conversations/:convId` | PUT | Update conversation (name) |
+| `/api/workspaces/:id/conversations/:convId` | DELETE | Delete conversation and its messages |
+| `/api/workspaces/:id/conversations/:convId/messages` | GET | Get messages (paginated) |
+| `/api/workspaces/:id/conversations/:convId/messages` | POST | Send message (start/resume session) |
 
 ### Response Shapes
 
@@ -83,7 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversatio
 **POST /api/workspaces/:id/conversations**
 ```json
 // Request: empty body
-// Response:
+// Response: 201 Created
 {
   "conversation": {
     "id": "uuid",
@@ -95,16 +121,26 @@ CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversatio
 }
 ```
 
-**PUT /api/conversations/:id**
+**PUT /api/workspaces/:id/conversations/:convId**
 ```json
 // Request:
 { "name": "新的对话名称" }
-// Response:
-{ "ok": true }
+// Response: 200 OK (returns updated conversation)
+{
+  "conversation": {
+    "id": "uuid",
+    "workspaceId": "uuid",
+    "name": "新的对话名称",
+    "createdAt": "2026-04-13T...",
+    "updatedAt": "2026-04-13T..."
+  }
+}
 ```
 
-**GET /api/conversations/:id/messages**
+**GET /api/workspaces/:id/conversations/:convId/messages**
 ```json
+// Query params: ?limit=100&before=message_id (cursor-based)
+// Response:
 {
   "messages": [
     {
@@ -121,9 +157,46 @@ CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversatio
       "parts": [{"type": "thinking", "text": "..."}],
       "createdAt": "2026-04-13T..."
     }
-  ]
+  ],
+  "hasMore": false,
+  "nextCursor": null
 }
 ```
+
+**POST /api/workspaces/:id/conversations/:convId/messages**
+```json
+// Request:
+{ "content": "用户输入的消息" }
+// Response: 202 Accepted (async - agent processes in background)
+{
+  "message": {
+    "id": "uuid",
+    "role": "user",
+    "content": "用户输入的消息",
+    "parts": null,
+    "createdAt": "2026-04-13T..."
+  }
+}
+```
+
+### Error Responses
+
+All endpoints return consistent error shape:
+```json
+{
+  "error": {
+    "code": "NOT_FOUND" | "VALIDATION_ERROR" | "INTERNAL_ERROR",
+    "message": "Human readable message",
+    "details": {}  // optional field-level errors
+  }
+}
+```
+
+| Status | Code | When |
+|--------|------|------|
+| 400 | VALIDATION_ERROR | Invalid input |
+| 404 | NOT_FOUND | Workspace or conversation not found |
+| 500 | INTERNAL_ERROR | Server error |
 
 ## Naming Logic
 
@@ -145,19 +218,19 @@ interface Conversation {
 }
 
 interface WorkspaceStore {
-  // Replace/add
+  // Conversations by workspace
   conversations: Record<string, Conversation[]>;  // workspaceId -> conversations
   activeConversationId: string | null;
 
-  // Messages keyed by conversation
+  // Messages keyed by conversation (migrated from workspaceId)
   messages: Record<string, ChatMessage[]>;  // conversationId -> messages
 
   // Methods
   fetchConversations: (workspaceId: string) => Promise<void>;
   createConversation: (workspaceId: string) => Promise<Conversation>;
   switchConversation: (conversationId: string, workspaceId: string) => Promise<void>;
-  renameConversation: (id: string, name: string) => Promise<void>;
-  deleteConversation: (id: string) => Promise<void>;
+  renameConversation: (workspaceId: string, id: string, name: string) => Promise<void>;
+  deleteConversation: (workspaceId: string, id: string) => Promise<void>;
   sendMessage: (content: string) => void;
 }
 ```
@@ -176,28 +249,55 @@ Workspace: banana-slides
     └── Messages (current conversation)
 ```
 
+## WebSocket Message Flow
+
+### Client → Server
+```json
+{
+  "type": "message",
+  "content": "用户消息",
+  "conversationId": "uuid",
+  "workspaceId": "uuid"
+}
+```
+
+### Server → Client (Streaming)
+```json
+{
+  "type": "assistant",
+  "content": "助手回复",
+  "conversationId": "uuid",
+  "workspaceId": "uuid",
+  "parts": [{"type": "thinking", "text": "..."}]
+}
+```
+
+**Note:** `conversationId` is used instead of `workspaceId` for message routing.
+
 ## Implementation Order
 
-1. **Database**: Add `conversations` and `conversation_messages` tables
-2. **Backend API**: Implement all conversation endpoints
-3. **WebChannel**: Use conversation_id for message routing
-4. **Frontend Store**: Add conversation state and API calls
-5. **UI Components**: Update sidebar and chat panel for conversations
+1. **Database**: Add `conversations` and `conversation_messages` tables with migration
+2. **Backend API**: Implement all conversation endpoints with proper error handling
+3. **WebChannel**: Route by `conversationId` instead of `workspaceId`
+4. **Frontend Store**: Refactor from `workspaceId` to `conversationId` keys
+5. **UI Components**: Update sidebar (conversation list) and chat panel
 6. **Auto-naming**: LLM summary after first response
-
-## Session Integration
-
-- Each conversation maps to one Claude Agent SDK session
-- `session_id` stored in `conversations` table
-- When switching conversations, resume corresponding session
-- When creating conversation, start new session
 
 ## File Changes
 
-- `src/db.ts`: Add tables and migration
-- `src/channels/web.ts`: Route by conversation_id
-- `src/agent-runner.ts`: Accept conversation_id, manage session mapping
-- `web/src/store.ts`: Add conversation state
-- `web/src/App.tsx`: Handle conversation switching
-- `web/src/components/WorkspaceSidebar.tsx`: Show conversation list
-- `web/src/components/ChatPanel.tsx`: Display current conversation
+| File | Changes |
+|------|---------|
+| `src/db.ts` | Add tables, migration, CRUD helpers |
+| `src/channels/web.ts` | Use `conversationId` for routing, per-client tracking |
+| `src/agent-runner.ts` | Accept `conversationId`, map to session |
+| `src/index.ts` | Pass `conversationId` through message flow |
+| `web/src/store.ts` | Add `conversations`, `activeConversationId`, refactor message keys |
+| `web/src/App.tsx` | Handle conversation switching, update WebSocket |
+| `web/src/components/WorkspaceSidebar.tsx` | Show conversation list with CRUD |
+| `web/src/components/ChatPanel.tsx` | Display current conversation, send via conversationId |
+
+## Concurrent Access
+
+- Each browser tab with the same conversation shares the same session
+- Messages are appended, not replaced
+- No optimistic locking on `updated_at` (eventual consistency acceptable for this use case)
