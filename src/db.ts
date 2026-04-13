@@ -43,10 +43,12 @@ function createSchema(database: Database.Database): void {
       timestamp TEXT,
       is_from_me INTEGER,
       is_bot_message INTEGER DEFAULT 0,
+      conversation_id TEXT,
       PRIMARY KEY (id, chat_jid),
       FOREIGN KEY (chat_jid) REFERENCES chats(jid)
     );
     CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 
     CREATE TABLE IF NOT EXISTS scheduled_tasks (
       id TEXT PRIMARY KEY,
@@ -195,6 +197,13 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* column already exists */
   }
+
+  // Add conversation_id column if it doesn't exist (migration for existing DBs)
+  try {
+    database.exec('ALTER TABLE messages ADD COLUMN conversation_id TEXT');
+  } catch {
+    /* column already exists */
+  }
 }
 
 export function initDatabase(): void {
@@ -324,7 +333,7 @@ export function setLastGroupSync(): void {
  */
 export function storeMessage(msg: NewMessage): void {
   db.prepare(
-    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages (id, chat_jid, sender, sender_name, content, timestamp, is_from_me, is_bot_message, workspace_id, conversation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     msg.id,
     msg.chat_jid,
@@ -335,7 +344,49 @@ export function storeMessage(msg: NewMessage): void {
     msg.is_from_me ? 1 : 0,
     msg.is_bot_message ? 1 : 0,
     msg.workspaceId ?? null,
+    msg.conversationId ?? null,
   );
+
+  // Also store in conversation_messages if conversationId is present
+  if (msg.conversationId) {
+    // Determine role: user messages have is_from_me=false and is_bot_message=false
+    // Assistant messages have is_from_me=true or is_bot_message=true
+    const role: 'user' | 'assistant' =
+      msg.is_from_me || msg.is_bot_message ? 'assistant' : 'user';
+    logger.info(
+      {
+        msgId: msg.id,
+        conversationId: msg.conversationId,
+        role,
+        contentLen: msg.content.length,
+      },
+      'Storing to conversation_messages',
+    );
+    try {
+      db.prepare(
+        `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(msg.id, msg.conversationId, role, msg.content, null, msg.timestamp);
+      logger.info(
+        { conversationId: msg.conversationId },
+        'conversation_messages insert succeeded',
+      );
+      // Update conversation updated_at
+      db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
+        msg.timestamp,
+        msg.conversationId,
+      );
+    } catch (err) {
+      logger.error(
+        { err, msgId: msg.id, conversationId: msg.conversationId },
+        'Failed to store to conversation_messages',
+      );
+    }
+  } else {
+    logger.info(
+      { msgId: msg.id },
+      'conversationId not set, skipping conversation_messages',
+    );
+  }
 }
 
 /**
@@ -414,7 +465,7 @@ export function getMessagesSince(
   // When workspaceId is provided, scope to that workspace for isolation.
   const sql = `
     SELECT * FROM (
-      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, workspace_id as workspaceId
+      SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, workspace_id as workspaceId, conversation_id as conversationId
       FROM messages
       WHERE chat_jid = ? AND timestamp > ?
         AND is_bot_message = 0 AND content NOT LIKE ?

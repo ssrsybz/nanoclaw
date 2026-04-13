@@ -64,7 +64,9 @@ describe('conversation CRUD', () => {
     addConversationMessage(db, conv.id, 'user', 'Hello');
     addConversationMessage(db, conv.id, 'assistant', 'Hi');
     deleteConversation(db, conv.id);
-    expect(getConversationsByWorkspace(db, 'ws-1').find(c => c.id === conv.id)).toBeUndefined();
+    expect(
+      getConversationsByWorkspace(db, 'ws-1').find((c) => c.id === conv.id),
+    ).toBeUndefined();
     expect(getConversationMessages(db, conv.id).length).toBe(0);
   });
 
@@ -77,7 +79,9 @@ describe('conversation CRUD', () => {
     expect(messages.length).toBe(2);
     expect(messages[0].role).toBe('user');
     expect(messages[1].role).toBe('assistant');
-    expect(JSON.parse(messages[1].parts!)).toEqual([{ type: 'thinking', text: '思考中...' }]);
+    expect(JSON.parse(messages[1].parts!)).toEqual([
+      { type: 'thinking', text: '思考中...' },
+    ]);
   });
 
   it('message count returns correct total', () => {

@@ -525,7 +525,10 @@ export class WebChannel implements Channel {
               createdAt: m.created_at,
             })),
             hasMore: messages.length === limit,
-            nextCursor: messages.length > 0 ? messages[messages.length - 1].created_at : null,
+            nextCursor:
+              messages.length > 0
+                ? messages[messages.length - 1].created_at
+                : null,
           });
           return;
         }
@@ -669,12 +672,33 @@ export class WebChannel implements Channel {
     // Use workspaceId from data if provided, otherwise fallback to chatJid mapping
     const workspaceId = data.workspaceId ?? this.chatJidWorkspaces.get(jid);
 
+    const timestamp = new Date().toISOString();
     const msg = {
       ...data,
       conversationId,
       workspaceId,
-      timestamp: new Date().toISOString(),
+      timestamp,
     };
+
+    // Store assistant messages to conversation_messages if conversationId is present
+    if (conversationId && data.type === 'assistant' && data.content) {
+      try {
+        const db = getDb();
+        const id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        db.prepare(
+          `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(id, conversationId, 'assistant', data.content, null, timestamp);
+        db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
+          timestamp,
+          conversationId,
+        );
+      } catch (err) {
+        logger.warn(
+          { err, conversationId },
+          'Failed to store assistant message to conversation_messages',
+        );
+      }
+    }
 
     // If conversationId is provided, route to the specific client
     // Otherwise broadcast to all clients (legacy behavior)

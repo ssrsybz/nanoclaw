@@ -200,13 +200,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const isMainGroup = group.isMain === true;
 
+  const cursor = getOrRecoverCursor(chatJid);
   const missedMessages = getMessagesSince(
     chatJid,
-    getOrRecoverCursor(chatJid),
+    cursor,
     ASSISTANT_NAME,
     MAX_MESSAGES_PER_PROMPT,
   );
 
+  logger.info(
+    { chatJid, cursor, missedCount: missedMessages.length },
+    'processGroupMessages called',
+  );
   if (missedMessages.length === 0) return true;
 
   // Resolve workspace context from the LAST message that carries workspaceId
@@ -225,10 +230,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     }
   }
 
+  // Resolve conversationId from the LAST message that carries it
+  let conversationId: string | undefined;
+  const messagesWithConversation = missedMessages.filter(
+    (m) => m.conversationId,
+  );
+  const withConversation =
+    messagesWithConversation[messagesWithConversation.length - 1];
+  if (withConversation?.conversationId) {
+    conversationId = withConversation.conversationId;
+  }
+
   // Filter messages to only include those from the same workspace.
   // This ensures workspace isolation when multiple workspaces share a chatJid.
   const filteredMessages = workspaceId
-    ? missedMessages.filter((m) => !m.workspaceId || m.workspaceId === workspaceId)
+    ? missedMessages.filter(
+        (m) => !m.workspaceId || m.workspaceId === workspaceId,
+      )
     : missedMessages;
 
   if (filteredMessages.length === 0) return true;
@@ -281,6 +299,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             type: 'assistant',
             content: result.streamData.text,
             workspaceId: workspaceId ?? null,
+            conversationId: conversationId ?? null,
           });
           outputSentToUser = true;
         } else if (
@@ -291,6 +310,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             type: 'thinking',
             content: result.streamData.thinking,
             workspaceId: workspaceId ?? null,
+            conversationId: conversationId ?? null,
           });
         } else if (result.streamType === 'tool_use') {
           await channel.sendStructured(chatJid, {
@@ -298,6 +318,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             toolName: result.streamData?.toolName,
             toolInput: result.streamData?.toolInput,
             workspaceId: workspaceId ?? null,
+            conversationId: conversationId ?? null,
           });
         }
         return;
@@ -319,6 +340,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             type: 'assistant',
             content: text,
             workspaceId: workspaceId ?? null,
+            conversationId: conversationId ?? null,
           });
         } else if (text) {
           await channel.sendMessage(chatJid, text);
@@ -368,7 +390,9 @@ async function runAgent(
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
   // Use workspace-aware session key so each workspace has isolated conversation history
-  const sessionKey = workspaceId ? `${group.folder}--ws-${workspaceId}` : group.folder;
+  const sessionKey = workspaceId
+    ? `${group.folder}--ws-${workspaceId}`
+    : group.folder;
   const sessionId = sessions[sessionKey];
 
   // Update tasks snapshot for agent to read (filtered by group)
@@ -523,8 +547,13 @@ async function startMessageLoop(): Promise<void> {
             allPending.length > 0 ? allPending : groupMessages;
 
           // Extract workspaceId from messages to check workspace isolation
-          const msgWorkspaceIds = [...new Set(messagesToSend.map((m) => m.workspaceId).filter(Boolean))];
-          const firstWorkspaceId = msgWorkspaceIds.length === 1 ? msgWorkspaceIds[0] : undefined;
+          const msgWorkspaceIds = [
+            ...new Set(
+              messagesToSend.map((m) => m.workspaceId).filter(Boolean),
+            ),
+          ];
+          const firstWorkspaceId =
+            msgWorkspaceIds.length === 1 ? msgWorkspaceIds[0] : undefined;
 
           // Check if active session matches the workspace of incoming messages.
           // If there's an active session for a DIFFERENT workspace, enqueue instead of piping
@@ -533,7 +562,10 @@ async function startMessageLoop(): Promise<void> {
           const activeSessionWorkspaceId = activeSessionKey?.includes('--ws-')
             ? activeSessionKey.split('--ws-')[1]
             : undefined;
-          const workspaceMismatch = firstWorkspaceId && activeSessionWorkspaceId && firstWorkspaceId !== activeSessionWorkspaceId;
+          const workspaceMismatch =
+            firstWorkspaceId &&
+            activeSessionWorkspaceId &&
+            firstWorkspaceId !== activeSessionWorkspaceId;
 
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
