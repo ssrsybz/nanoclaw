@@ -17,6 +17,7 @@ export interface NewMessage {
   is_from_me?: boolean;
   is_bot_message?: boolean;
   workspaceId?: string;
+  conversationId?: string;
 }
 
 export interface ScheduledTask {
@@ -57,6 +58,25 @@ export interface Channel {
   setTyping?(jid: string, isTyping: boolean): Promise<void>;
   // Optional: sync group/chat names from the platform.
   syncGroups?(force: boolean): Promise<void>;
+  // Optional: send structured message for rich UI (streaming, thinking, tool use)
+  sendStructured?(jid: string, data: StreamMessage): Promise<void>;
+}
+
+// Structured message types for streaming UI
+export interface StreamMessage {
+  type:
+    | 'assistant'
+    | 'thinking'
+    | 'tool_use'
+    | 'tool_result'
+    | 'stream_start'
+    | 'stream_end';
+  content?: string;
+  toolName?: string;
+  toolInput?: string;
+  toolOutput?: string;
+  workspaceId?: string | null;
+  conversationId?: string | null;
 }
 
 // Callback type that channels use to deliver inbound messages

@@ -13,6 +13,7 @@ import {
   OnChatMetadata,
   OnInboundMessage,
   RegisteredGroup,
+  StreamMessage,
 } from '../types.js';
 
 export interface WebChannelOpts {
@@ -33,6 +34,11 @@ export class WebChannel implements Channel {
   private opts: WebChannelOpts;
   private port: number;
   private clients: Set<WebSocket> = new Set();
+  // Track workspace and conversation per client for response routing
+  private clientWorkspaces: Map<WebSocket, string> = new Map();
+  private clientConversationIds: Map<WebSocket, string> = new Map();
+  // Fallback workspace per chatJid for legacy sendMessage
+  private chatJidWorkspaces: Map<string, string> = new Map();
 
   constructor(port: number, opts: WebChannelOpts) {
     this.port = port;
@@ -73,6 +79,8 @@ export class WebChannel implements Channel {
 
       ws.on('close', () => {
         this.clients.delete(ws);
+        this.clientWorkspaces.delete(ws);
+        this.clientConversationIds.delete(ws);
         logger.info(
           { clientCount: this.clients.size },
           'Web IM client disconnected',
@@ -210,7 +218,7 @@ export class WebChannel implements Channel {
       // Route: GET /api/workspaces
       if (pathname === '/api/workspaces' && method === 'GET') {
         const workspaces = workspace.listWorkspaces(db);
-        sendJson(200, workspaces);
+        sendJson(200, { workspaces });
         return;
       }
 
@@ -222,7 +230,7 @@ export class WebChannel implements Channel {
           return;
         }
         const ws = workspace.addWorkspace(db, body.path);
-        sendJson(201, ws);
+        sendJson(201, { workspace: ws });
         return;
       }
 
@@ -399,11 +407,27 @@ export class WebChannel implements Channel {
 
   private handleMessage(
     ws: WebSocket,
-    msg: { type: string; content?: string; sender?: string; workspaceId?: string },
+    msg: {
+      type: string;
+      content?: string;
+      sender?: string;
+      workspaceId?: string;
+      conversationId?: string;
+    },
   ): void {
     if (msg.type === 'message' && msg.content) {
       const timestamp = new Date().toISOString();
       const sender = msg.sender || 'User';
+
+      // Track workspace and conversation per client for response routing
+      if (msg.workspaceId) {
+        this.clientWorkspaces.set(ws, msg.workspaceId);
+        // Also update chatJid -> workspace mapping for legacy sendMessage
+        this.chatJidWorkspaces.set(WEB_JID, msg.workspaceId);
+      }
+      if (msg.conversationId) {
+        this.clientConversationIds.set(ws, msg.conversationId);
+      }
 
       // Store chat metadata
       this.opts.onChatMetadata(
@@ -424,6 +448,7 @@ export class WebChannel implements Channel {
         timestamp,
         is_from_me: false,
         workspaceId: msg.workspaceId,
+        conversationId: msg.conversationId,
       });
 
       logger.info(
@@ -439,11 +464,13 @@ export class WebChannel implements Channel {
       return;
     }
 
+    const workspaceId = this.chatJidWorkspaces.get(jid);
     const message = {
       type: 'message',
       content: text,
       sender: ASSISTANT_NAME,
       timestamp: new Date().toISOString(),
+      workspaceId,
     };
 
     // Broadcast to all connected clients
@@ -454,6 +481,39 @@ export class WebChannel implements Channel {
     }
 
     logger.info({ jid, length: text.length }, 'Web IM message sent');
+  }
+
+  async sendStructured(jid: string, data: StreamMessage): Promise<void> {
+    if (!this.wss) return;
+
+    // Use conversationId from data if provided
+    const conversationId = data.conversationId;
+    // Use workspaceId from data if provided, otherwise fallback to chatJid mapping
+    const workspaceId = data.workspaceId ?? this.chatJidWorkspaces.get(jid);
+
+    const msg = {
+      ...data,
+      conversationId,
+      workspaceId,
+      timestamp: new Date().toISOString(),
+    };
+
+    // If conversationId is provided, route to the specific client
+    // Otherwise broadcast to all clients (legacy behavior)
+    if (conversationId) {
+      for (const [client, clientConvId] of this.clientConversationIds) {
+        if (clientConvId === conversationId && client.readyState === WebSocket.OPEN) {
+          this.sendToClient(client, msg);
+        }
+      }
+    } else {
+      // Broadcast to all clients for backwards compatibility
+      for (const client of this.clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          this.sendToClient(client, msg);
+        }
+      }
+    }
   }
 
   private sendToClient(ws: WebSocket, data: object): void {
