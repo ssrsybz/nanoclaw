@@ -2,13 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store';
 
 export default function ChatPanel({ sendMessage }: { sendMessage: (content: string) => void }) {
-  const { workspaces, activeWorkspaceId, messages, typing } = useStore();
+  const { workspaces, activeWorkspaceId, conversations, activeConversationId, messages, typing } = useStore();
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
-  const chatMessages = activeWorkspaceId ? (messages[activeWorkspaceId] || []) : [];
+  const activeConversation = activeWorkspaceId && activeConversationId
+    ? (conversations[activeWorkspaceId] || []).find((c) => c.id === activeConversationId)
+    : null;
+  const chatMessages = activeConversationId ? (messages[activeConversationId] || []) : [];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -16,7 +19,7 @@ export default function ChatPanel({ sendMessage }: { sendMessage: (content: stri
 
   const handleSend = () => {
     const trimmed = input.trim();
-    if (!trimmed || !activeWorkspaceId) return;
+    if (!trimmed || !activeConversationId) return;
     sendMessage(trimmed);
     setInput('');
     if (textareaRef.current) {
@@ -50,11 +53,24 @@ export default function ChatPanel({ sendMessage }: { sendMessage: (content: stri
     );
   }
 
+  if (!activeConversation) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-[#1a1a2e]">
+        <div className="text-center">
+          <div className="text-5xl mb-4">&#128062;</div>
+          <h2 className="text-xl font-bold text-white/60">{activeWorkspace.name}</h2>
+          <p className="text-white/30 mt-2">Select or create a conversation to start chatting</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col bg-[#1a1a2e] min-w-0">
       {/* Header */}
       <div className="px-5 py-3 border-b border-white/10">
-        <h2 className="font-semibold text-white truncate">{activeWorkspace.name}</h2>
+        <h2 className="font-semibold text-white truncate">{activeConversation.name}</h2>
+        <p className="text-xs text-white/30 truncate">{activeWorkspace.name}</p>
       </div>
 
       {/* Messages */}
