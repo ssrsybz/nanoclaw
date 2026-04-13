@@ -101,6 +101,29 @@ function createSchema(database: Database.Database): void {
       created_at TEXT NOT NULL,
       last_used_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      session_id TEXT,
+      name TEXT NOT NULL DEFAULT '新对话',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+      content TEXT NOT NULL,
+      parts TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversations_workspace ON conversations(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversation_messages(conversation_id);
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -750,4 +773,112 @@ function migrateJsonState(): void {
       }
     }
   }
+}
+
+// --- Conversation helpers ---
+
+export interface ConversationRow {
+  id: string;
+  workspace_id: string;
+  session_id: string | null;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationMessageRow {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  parts: string | null;
+  created_at: string;
+}
+
+export function createConversation(
+  db: Database.Database,
+  workspaceId: string,
+): ConversationRow {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO conversations (id, workspace_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+  ).run(id, workspaceId, '新对话', now, now);
+  return { id, workspace_id: workspaceId, session_id: null, name: '新对话', created_at: now, updated_at: now };
+}
+
+export function getConversationsByWorkspace(
+  db: Database.Database,
+  workspaceId: string,
+): ConversationRow[] {
+  return db
+    .prepare(`SELECT * FROM conversations WHERE workspace_id = ? ORDER BY updated_at DESC`)
+    .all(workspaceId) as ConversationRow[];
+}
+
+export function getConversation(
+  db: Database.Database,
+  id: string,
+): ConversationRow | null {
+  return db.prepare(`SELECT * FROM conversations WHERE id = ?`).get(id) as ConversationRow | null;
+}
+
+export function updateConversation(
+  db: Database.Database,
+  id: string,
+  name: string,
+): void {
+  db.prepare(`UPDATE conversations SET name = ?, updated_at = ? WHERE id = ?`)
+    .run(name, new Date().toISOString(), id);
+}
+
+export function updateConversationSession(
+  db: Database.Database,
+  id: string,
+  sessionId: string,
+): void {
+  db.prepare(`UPDATE conversations SET session_id = ?, updated_at = ? WHERE id = ?`)
+    .run(sessionId, new Date().toISOString(), id);
+}
+
+export function deleteConversation(db: Database.Database, id: string): void {
+  db.prepare(`DELETE FROM conversation_messages WHERE conversation_id = ?`).run(id);
+  db.prepare(`DELETE FROM conversations WHERE id = ?`).run(id);
+}
+
+export function addConversationMessage(
+  db: Database.Database,
+  conversationId: string,
+  role: 'user' | 'assistant',
+  content: string,
+  parts?: string,
+): ConversationMessageRow {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, conversationId, role, content, parts ?? null, now);
+  // Update conversation updated_at
+  db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(now, conversationId);
+  return { id, conversation_id: conversationId, role, content, parts: parts ?? null, created_at: now };
+}
+
+export function getConversationMessages(
+  db: Database.Database,
+  conversationId: string,
+  limit = 100,
+  before?: string,
+): ConversationMessageRow[] {
+  if (before) {
+    return db
+      .prepare(
+        `SELECT * FROM conversation_messages WHERE conversation_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
+      )
+      .all(conversationId, before, limit) as ConversationMessageRow[];
+  }
+  return db
+    .prepare(
+      `SELECT * FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?`,
+    )
+    .all(conversationId, limit) as ConversationMessageRow[];
 }
