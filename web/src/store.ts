@@ -191,6 +191,8 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
     const convs = get().conversations[id];
     if (convs && convs.length > 0) {
       set({ activeConversationId: convs[0].id });
+      // Load messages for the selected conversation
+      await get().switchConversation(convs[0].id);
     } else {
       await get().createConversation(id);
     }
@@ -278,8 +280,30 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
     return null;
   },
 
-  switchConversation: (conversationId) => {
+  switchConversation: async (conversationId) => {
     set({ activeConversationId: conversationId });
+    // Load messages for the conversation from backend
+    const { activeWorkspaceId } = get();
+    if (!activeWorkspaceId || !conversationId) return;
+    try {
+      const res = await fetch(`/api/workspaces/${activeWorkspaceId}/conversations/${conversationId}/messages`);
+      const data = await res.json();
+      if (data.messages) {
+        set((state) => ({
+          messages: {
+            ...state.messages,
+            [conversationId]: data.messages.map((m: any) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              parts: m.parts,
+            })),
+          },
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to load conversation messages:', err);
+    }
   },
 
   renameConversation: async (workspaceId, id, name) => {

@@ -33,7 +33,7 @@ export default function WorkspaceSidebar() {
     }
   };
 
-  const handleStartRename = (e: React.MouseEvent, workspaceId: string, conversationId: string, currentName: string) => {
+  const handleStartRename = (e: React.MouseEvent, _workspaceId: string, conversationId: string, currentName: string) => {
     e.stopPropagation();
     setEditingId(conversationId);
     setEditingName(currentName);
@@ -61,7 +61,6 @@ export default function WorkspaceSidebar() {
     createConversation(workspaceId);
   };
 
-  const activeWorkspaceConversations = activeWorkspaceId ? (conversations[activeWorkspaceId] || []) : [];
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
 
   return (

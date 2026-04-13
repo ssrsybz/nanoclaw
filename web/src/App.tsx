@@ -118,7 +118,7 @@ export default function App() {
 
   // Forward send/cancel events from AssistantChat to WebSocket
   useEffect(() => {
-    const handleSend = (e: Event) => {
+    const handleSend = async (e: Event) => {
       const { content } = (e as CustomEvent).detail;
       const ws = wsRef.current;
       const conversationId = activeConversationIdRef.current;
@@ -126,6 +126,20 @@ export default function App() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (!conversationId || !workspaceId) return;
       setTyping(true);
+      // Store user message immediately for instant display
+      appendMessage(conversationId, { role: 'user', content });
+
+      // Persist message to backend via API
+      try {
+        await fetch(`/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'user', content }),
+        });
+      } catch (err) {
+        console.error('Failed to persist message:', err);
+      }
+
       ws.send(JSON.stringify({
         type: 'message',
         content,
