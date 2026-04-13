@@ -35,8 +35,9 @@ export interface AgentInput {
   isScheduledTask?: boolean;
   assistantName?: string;
   script?: string;
-  workspacePath?: string;   // If set, overrides group folder as cwd
+  workspacePath?: string; // If set, overrides group folder as cwd
   enabledSkills?: string[]; // Skills to inject into systemPrompt
+  workspaceId?: string; // If set, namespaces session directory per workspace
 }
 
 export interface AgentOutput {
@@ -44,6 +45,15 @@ export interface AgentOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  // Streaming fields for real-time UI updates
+  streamType?: 'assistant' | 'thinking' | 'tool_use' | 'result';
+  streamData?: {
+    text?: string;
+    thinking?: string;
+    toolName?: string;
+    toolInput?: string;
+    toolOutput?: string;
+  };
 }
 
 interface SessionEntry {
@@ -60,17 +70,23 @@ interface SessionsIndex {
 const SCRIPT_TIMEOUT_MS = 30_000;
 
 /**
- * Get the path to the group's sessions directory
+ * Get the path to the group's sessions directory.
+ * When workspaceId is provided, sessions are namespaced per workspace:
+ * data/sessions/{groupFolder}--ws-{workspaceId}/.claude
  */
-function getGroupSessionsDir(groupFolder: string): string {
+function getGroupSessionsDir(groupFolder: string, workspaceId?: string): string {
+  if (workspaceId) {
+    return path.join(DATA_DIR, 'sessions', `${groupFolder}--ws-${workspaceId}`, '.claude');
+  }
   return path.join(DATA_DIR, 'sessions', groupFolder, '.claude');
 }
 
 /**
- * Ensure the sessions directory exists with proper settings
+ * Ensure the sessions directory exists with proper settings.
+ * When workspaceId is provided, sessions are namespaced per workspace.
  */
-function ensureSessionsDir(groupFolder: string): string {
-  const sessionsDir = getGroupSessionsDir(groupFolder);
+function ensureSessionsDir(groupFolder: string, workspaceId?: string): string {
+  const sessionsDir = getGroupSessionsDir(groupFolder, workspaceId);
   fs.mkdirSync(sessionsDir, { recursive: true });
 
   // Create settings.json if it doesn't exist
@@ -292,7 +308,7 @@ export async function runAgentDirect(
 ): Promise<AgentOutput> {
   const startTime = Date.now();
   const groupDir = input.workspacePath || getGroupWorkingDir(input.groupFolder);
-  const sessionsDir = ensureSessionsDir(input.groupFolder);
+  const sessionsDir = ensureSessionsDir(input.groupFolder, input.workspaceId);
 
   logger.info(
     {
@@ -438,7 +454,7 @@ export async function runAgentDirect(
     // The Claude CLI exits with code 1 when --resume references a
     // non-existent session, which breaks the agent loop.
     if (sessionId) {
-      const sessionsDir = getGroupSessionsDir(input.groupFolder);
+      const sessionsDir = getGroupSessionsDir(input.groupFolder, input.workspaceId);
       const transcriptPath = path.join(sessionsDir, `${sessionId}.jsonl`);
       if (!fs.existsSync(transcriptPath)) {
         logger.debug(
@@ -467,11 +483,21 @@ export async function runAgentDirect(
 
     // Inject enabled skills into systemPrompt
     let skillContent = '';
-    if (input.enabledSkills && input.enabledSkills.length > 0 && input.workspacePath) {
+    if (
+      input.enabledSkills &&
+      input.enabledSkills.length > 0 &&
+      input.workspacePath
+    ) {
       const MAX_SKILL_BYTES = 32 * 1024;
       let totalBytes = 0;
       for (const skillName of input.enabledSkills) {
-        const skillMdPath = path.join(input.workspacePath, '.claude', 'skills', skillName, 'SKILL.md');
+        const skillMdPath = path.join(
+          input.workspacePath,
+          '.claude',
+          'skills',
+          skillName,
+          'SKILL.md',
+        );
         if (fs.existsSync(skillMdPath)) {
           const content = fs.readFileSync(skillMdPath, 'utf-8');
           const wrapped = `\n<!-- SKILL: ${skillName} -->\n${content}\n<!-- END SKILL: ${skillName} -->\n`;
@@ -482,7 +508,8 @@ export async function runAgentDirect(
       }
     }
 
-    const systemPrompt = (globalClaudeMd || 'You are a helpful AI assistant.') + skillContent;
+    const systemPrompt =
+      (globalClaudeMd || 'You are a helpful AI assistant.') + skillContent;
 
     // Allowed tools — only standard tools; MCP tool names are added
     // dynamically when mcpServers is configured.
@@ -565,7 +592,12 @@ export async function runAgentDirect(
           const stderrStr = typeof data === 'string' ? data : String(data);
           logger.debug(`Claude stderr: ${stderrStr.slice(0, 500)}`);
         },
-        mcpServers: mcpServersConfig,
+        mcpServers: mcpServersConfig as
+          | Record<
+              string,
+              import('@anthropic-ai/claude-agent-sdk').McpServerConfig
+            >
+          | undefined,
       },
     })) {
       messageCount++;
@@ -577,6 +609,54 @@ export async function runAgentDirect(
 
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
+
+        // Forward assistant message parts (text, thinking, tool_use) for streaming
+        const assistantMsg = message as unknown as {
+          message?: {
+            content?: Array<{
+              type: string;
+              text?: string;
+              thinking?: string;
+              name?: string;
+              input?: unknown;
+            }>;
+          };
+        };
+        if (onOutput && assistantMsg.message?.content) {
+          for (const part of assistantMsg.message.content) {
+            if (part.type === 'text' && part.text) {
+              await onOutput({
+                status: 'success',
+                result: null,
+                newSessionId,
+                streamType: 'assistant',
+                streamData: { text: part.text },
+              });
+            } else if (part.type === 'thinking' && part.thinking) {
+              await onOutput({
+                status: 'success',
+                result: null,
+                newSessionId,
+                streamType: 'thinking',
+                streamData: { thinking: part.thinking },
+              });
+            } else if (part.type === 'tool_use' && part.name) {
+              await onOutput({
+                status: 'success',
+                result: null,
+                newSessionId,
+                streamType: 'tool_use',
+                streamData: {
+                  toolName: part.name,
+                  toolInput:
+                    typeof part.input === 'string'
+                      ? part.input
+                      : JSON.stringify(part.input, null, 2),
+                },
+              });
+            }
+          }
+        }
       }
 
       if (message.type === 'system' && message.subtype === 'init') {

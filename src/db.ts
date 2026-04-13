@@ -406,10 +406,12 @@ export function getMessagesSince(
   sinceTimestamp: string,
   botPrefix: string,
   limit: number = 200,
+  workspaceId?: string,
 ): NewMessage[] {
   // Filter bot messages using both the is_bot_message flag AND the content
   // prefix as a backstop for messages written before the migration ran.
   // Subquery takes the N most recent, outer query re-sorts chronologically.
+  // When workspaceId is provided, scope to that workspace for isolation.
   const sql = `
     SELECT * FROM (
       SELECT id, chat_jid, sender, sender_name, content, timestamp, is_from_me, workspace_id as workspaceId
@@ -417,13 +419,15 @@ export function getMessagesSince(
       WHERE chat_jid = ? AND timestamp > ?
         AND is_bot_message = 0 AND content NOT LIKE ?
         AND content != '' AND content IS NOT NULL
+        ${workspaceId ? 'AND workspace_id = ?' : ''}
       ORDER BY timestamp DESC
       LIMIT ?
     ) ORDER BY timestamp
   `;
-  return db
-    .prepare(sql)
-    .all(chatJid, sinceTimestamp, `${botPrefix}:%`, limit) as NewMessage[];
+  const params: (string | number)[] = workspaceId
+    ? [chatJid, sinceTimestamp, `${botPrefix}:%`, workspaceId, limit]
+    : [chatJid, sinceTimestamp, `${botPrefix}:%`, limit];
+  return db.prepare(sql).all(...params) as NewMessage[];
 }
 
 export function getLastBotMessageTimestamp(
@@ -804,7 +808,14 @@ export function createConversation(
   db.prepare(
     `INSERT INTO conversations (id, workspace_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
   ).run(id, workspaceId, '新对话', now, now);
-  return { id, workspace_id: workspaceId, session_id: null, name: '新对话', created_at: now, updated_at: now };
+  return {
+    id,
+    workspace_id: workspaceId,
+    session_id: null,
+    name: '新对话',
+    created_at: now,
+    updated_at: now,
+  };
 }
 
 export function getConversationsByWorkspace(
@@ -812,7 +823,9 @@ export function getConversationsByWorkspace(
   workspaceId: string,
 ): ConversationRow[] {
   return db
-    .prepare(`SELECT * FROM conversations WHERE workspace_id = ? ORDER BY updated_at DESC`)
+    .prepare(
+      `SELECT * FROM conversations WHERE workspace_id = ? ORDER BY updated_at DESC`,
+    )
     .all(workspaceId) as ConversationRow[];
 }
 
@@ -820,7 +833,9 @@ export function getConversation(
   db: Database.Database,
   id: string,
 ): ConversationRow | null {
-  return db.prepare(`SELECT * FROM conversations WHERE id = ?`).get(id) as ConversationRow | null;
+  return db
+    .prepare(`SELECT * FROM conversations WHERE id = ?`)
+    .get(id) as ConversationRow | null;
 }
 
 export function updateConversation(
@@ -828,8 +843,9 @@ export function updateConversation(
   id: string,
   name: string,
 ): void {
-  db.prepare(`UPDATE conversations SET name = ?, updated_at = ? WHERE id = ?`)
-    .run(name, new Date().toISOString(), id);
+  db.prepare(
+    `UPDATE conversations SET name = ?, updated_at = ? WHERE id = ?`,
+  ).run(name, new Date().toISOString(), id);
 }
 
 export function updateConversationSession(
@@ -837,12 +853,15 @@ export function updateConversationSession(
   id: string,
   sessionId: string,
 ): void {
-  db.prepare(`UPDATE conversations SET session_id = ?, updated_at = ? WHERE id = ?`)
-    .run(sessionId, new Date().toISOString(), id);
+  db.prepare(
+    `UPDATE conversations SET session_id = ?, updated_at = ? WHERE id = ?`,
+  ).run(sessionId, new Date().toISOString(), id);
 }
 
 export function deleteConversation(db: Database.Database, id: string): void {
-  db.prepare(`DELETE FROM conversation_messages WHERE conversation_id = ?`).run(id);
+  db.prepare(`DELETE FROM conversation_messages WHERE conversation_id = ?`).run(
+    id,
+  );
   db.prepare(`DELETE FROM conversations WHERE id = ?`).run(id);
 }
 
@@ -859,8 +878,18 @@ export function addConversationMessage(
     `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(id, conversationId, role, content, parts ?? null, now);
   // Update conversation updated_at
-  db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(now, conversationId);
-  return { id, conversation_id: conversationId, role, content, parts: parts ?? null, created_at: now };
+  db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
+    now,
+    conversationId,
+  );
+  return {
+    id,
+    conversation_id: conversationId,
+    role,
+    content,
+    parts: parts ?? null,
+    created_at: now,
+  };
 }
 
 export function getConversationMessages(

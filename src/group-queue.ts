@@ -48,6 +48,16 @@ export class GroupQueue {
     return state;
   }
 
+  /**
+   * Get the session key of the active agent for a group, if any.
+   * Returns null if no agent is currently active.
+   */
+  getActiveSessionKey(groupJid: string): string | null {
+    const state = this.groups.get(groupJid);
+    if (!state || !state.active) return null;
+    return state.groupFolder ?? null;
+  }
+
   setProcessMessagesFn(fn: (groupJid: string) => Promise<boolean>): void {
     this.processMessagesFn = fn;
   }
@@ -312,9 +322,6 @@ export class GroupQueue {
   async shutdown(_gracePeriodMs: number): Promise<void> {
     this.shuttingDown = true;
 
-    logger.info(
-      { activeCount: this.activeCount },
-      'GroupQueue shutting down',
-    );
+    logger.info({ activeCount: this.activeCount }, 'GroupQueue shutting down');
   }
 }

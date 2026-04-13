@@ -209,11 +209,35 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   if (missedMessages.length === 0) return true;
 
+  // Resolve workspace context from the LAST message that carries workspaceId
+  // (missedMessages is sorted oldest-first; get the last one with workspaceId)
+  let workspaceId: string | undefined;
+  let workspacePath: string | undefined;
+  let enabledSkills: string[] | undefined;
+  const messagesWithWorkspace = missedMessages.filter((m) => m.workspaceId);
+  const withWorkspace = messagesWithWorkspace[messagesWithWorkspace.length - 1];
+  if (withWorkspace?.workspaceId) {
+    workspaceId = withWorkspace.workspaceId;
+    const ws = getWorkspace(getDb(), workspaceId);
+    if (ws) {
+      workspacePath = ws.path;
+      enabledSkills = ws.enabledSkills;
+    }
+  }
+
+  // Filter messages to only include those from the same workspace.
+  // This ensures workspace isolation when multiple workspaces share a chatJid.
+  const filteredMessages = workspaceId
+    ? missedMessages.filter((m) => !m.workspaceId || m.workspaceId === workspaceId)
+    : missedMessages;
+
+  if (filteredMessages.length === 0) return true;
+
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const triggerPattern = getTriggerPattern(group.trigger);
     const allowlistCfg = loadSenderAllowlist();
-    const hasTrigger = missedMessages.some(
+    const hasTrigger = filteredMessages.some(
       (m) =>
         triggerPattern.test(m.content.trim()) &&
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
@@ -221,29 +245,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(missedMessages, TIMEZONE);
-
-  // Resolve workspace context from the first message that carries workspaceId
-  let workspacePath: string | undefined;
-  let enabledSkills: string[] | undefined;
-  const withWorkspace = missedMessages.find((m) => m.workspaceId);
-  if (withWorkspace?.workspaceId) {
-    const ws = getWorkspace(getDb(), withWorkspace.workspaceId);
-    if (ws) {
-      workspacePath = ws.path;
-      enabledSkills = ws.enabledSkills;
-    }
-  }
+  const prompt = formatMessages(filteredMessages, TIMEZONE);
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
   const previousCursor = lastAgentTimestamp[chatJid] || '';
   lastAgentTimestamp[chatJid] =
-    missedMessages[missedMessages.length - 1].timestamp;
+    filteredMessages[filteredMessages.length - 1].timestamp;
   saveState();
 
   logger.info(
-    { group: group.name, messageCount: missedMessages.length },
+    { group: group.name, messageCount: filteredMessages.length, workspaceId },
     'Processing messages',
   );
 
@@ -251,32 +263,74 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  let streamingSent = false;
   const output = await runAgent(
     group,
     prompt,
     chatJid,
     workspacePath,
     enabledSkills,
+    workspaceId,
     async (result) => {
-    // Streaming output callback — called for each agent result
-    if (result.result) {
-      const raw =
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result);
-      // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
-      const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
-      logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
-      if (text) {
-        await channel.sendMessage(chatJid, text);
+      // Handle streaming messages (assistant, thinking, tool_use)
+      if (result.streamType && channel.sendStructured) {
+        streamingSent = true;
+
+        if (result.streamType === 'assistant' && result.streamData?.text) {
+          await channel.sendStructured(chatJid, {
+            type: 'assistant',
+            content: result.streamData.text,
+            workspaceId: workspaceId ?? null,
+          });
+          outputSentToUser = true;
+        } else if (
+          result.streamType === 'thinking' &&
+          result.streamData?.thinking
+        ) {
+          await channel.sendStructured(chatJid, {
+            type: 'thinking',
+            content: result.streamData.thinking,
+            workspaceId: workspaceId ?? null,
+          });
+        } else if (result.streamType === 'tool_use') {
+          await channel.sendStructured(chatJid, {
+            type: 'tool_use',
+            toolName: result.streamData?.toolName,
+            toolInput: result.streamData?.toolInput,
+            workspaceId: workspaceId ?? null,
+          });
+        }
+        return;
+      }
+
+      // Skip result if we already sent streaming messages (avoids duplicates)
+      if (streamingSent) return;
+
+      // Legacy: final result text (only when no streaming)
+      if (result.result) {
+        const raw =
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result);
+        const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+        logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
+        if (text && channel.sendStructured) {
+          await channel.sendStructured(chatJid, {
+            type: 'assistant',
+            content: text,
+            workspaceId: workspaceId ?? null,
+          });
+        } else if (text) {
+          await channel.sendMessage(chatJid, text);
+        }
         outputSentToUser = true;
       }
-    }
 
-    if (result.status === 'error') {
-      hadError = true;
-    }
-  });
+      if (result.status === 'error') {
+        hadError = true;
+      }
+    },
+  );
 
   await channel.setTyping?.(chatJid, false);
 
@@ -309,10 +363,13 @@ async function runAgent(
   chatJid: string,
   workspacePath?: string,
   enabledSkills?: string[],
+  workspaceId?: string,
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
-  const sessionId = sessions[group.folder];
+  // Use workspace-aware session key so each workspace has isolated conversation history
+  const sessionKey = workspaceId ? `${group.folder}--ws-${workspaceId}` : group.folder;
+  const sessionId = sessions[sessionKey];
 
   // Update tasks snapshot for agent to read (filtered by group)
   const tasks = getAllTasks();
@@ -344,16 +401,16 @@ async function runAgent(
   const wrappedOnOutput = onOutput
     ? async (output: AgentOutput) => {
         if (output.newSessionId) {
-          sessions[group.folder] = output.newSessionId;
-          setSession(group.folder, output.newSessionId);
+          sessions[sessionKey] = output.newSessionId;
+          setSession(sessionKey, output.newSessionId);
         }
         await onOutput(output);
       }
     : undefined;
 
   try {
-    // Register this agent session with the queue
-    queue.registerAgent(chatJid, group.folder);
+    // Register this agent session with the queue (keyed by chatJid so piping works per-JID)
+    queue.registerAgent(chatJid, sessionKey);
 
     const output = await runAgentDirect(
       group,
@@ -366,13 +423,14 @@ async function runAgent(
         assistantName: ASSISTANT_NAME,
         workspacePath,
         enabledSkills,
+        workspaceId,
       },
       wrappedOnOutput,
     );
 
     if (output.newSessionId) {
-      sessions[group.folder] = output.newSessionId;
-      setSession(group.folder, output.newSessionId);
+      sessions[sessionKey] = output.newSessionId;
+      setSession(sessionKey, output.newSessionId);
     }
 
     if (output.status === 'error') {
@@ -463,9 +521,23 @@ async function startMessageLoop(): Promise<void> {
           );
           const messagesToSend =
             allPending.length > 0 ? allPending : groupMessages;
+
+          // Extract workspaceId from messages to check workspace isolation
+          const msgWorkspaceIds = [...new Set(messagesToSend.map((m) => m.workspaceId).filter(Boolean))];
+          const firstWorkspaceId = msgWorkspaceIds.length === 1 ? msgWorkspaceIds[0] : undefined;
+
+          // Check if active session matches the workspace of incoming messages.
+          // If there's an active session for a DIFFERENT workspace, enqueue instead of piping
+          // to prevent cross-workspace conversation mixing.
+          const activeSessionKey = queue.getActiveSessionKey(chatJid);
+          const activeSessionWorkspaceId = activeSessionKey?.includes('--ws-')
+            ? activeSessionKey.split('--ws-')[1]
+            : undefined;
+          const workspaceMismatch = firstWorkspaceId && activeSessionWorkspaceId && firstWorkspaceId !== activeSessionWorkspaceId;
+
           const formatted = formatMessages(messagesToSend, TIMEZONE);
 
-          if (queue.sendMessage(chatJid, formatted)) {
+          if (!workspaceMismatch && queue.sendMessage(chatJid, formatted)) {
             logger.debug(
               { chatJid, count: messagesToSend.length },
               'Piped messages to active agent session',
