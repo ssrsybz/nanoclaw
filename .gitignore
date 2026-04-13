@@ -36,6 +36,9 @@ groups/global/*
 # Skills system (local per-installation state)
 .nanoclaw/
 
+# Local skills directory
+.claude/
+
 agents-sdk-docs
 
 # Local development artifacts
