@@ -44,12 +44,21 @@ export interface ToolUsePart {
 
 export type ContentPart = TextPart | ThinkingPart | ToolUsePart;
 
+export interface AttachmentInfo {
+  fileId: string;
+  filename: string;
+  extractedText: string;
+  filePath: string;
+}
+
 export interface ChatMessage {
   id?: string;
   role: 'user' | 'assistant';
   content: string;
   // Rich content parts for assistant messages
   parts?: ContentPart[];
+  // File attachment info
+  attachment?: AttachmentInfo;
 }
 
 interface WorkspaceStore {
@@ -297,6 +306,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
               role: m.role,
               content: m.content,
               parts: m.parts,
+              attachment: m.attachment,
             })),
           },
         }));
