@@ -3,7 +3,10 @@ import path from 'path';
 import fs from 'fs';
 import { WebSocket, WebSocketServer } from 'ws';
 
-import { ASSISTANT_NAME, STORE_DIR } from '../config.js';
+import busboy from 'busboy';
+
+import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from '../config.js';
+import { parseFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } from '../file-parser.js';
 import { getDb } from '../db.js';
 import { logger } from '../logger.js';
 import * as workspace from '../workspace.js';
@@ -208,6 +211,38 @@ export class WebChannel implements Channel {
         req.on('data', (chunk: Buffer) => chunks.push(chunk));
         req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
         req.on('error', reject);
+      });
+    };
+
+    const parseMultipart = (): Promise<{ file: Buffer; filename: string; mimeType: string }> => {
+      return new Promise((resolve, reject) => {
+        const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } });
+        let fileBuffer: Buffer[] = [];
+        let filename = '';
+        let mimeType = '';
+        let fileFound = false;
+
+        bb.on('file', (name, stream, info) => {
+          if (name !== 'file' || fileFound) {
+            stream.resume();
+            return;
+          }
+          fileFound = true;
+          filename = info.filename;
+          mimeType = info.mimeType;
+          stream.on('data', (chunk: Buffer) => fileBuffer.push(chunk));
+        });
+
+        bb.on('finish', () => {
+          if (!fileFound) {
+            reject(new Error('No file field in upload'));
+            return;
+          }
+          resolve({ file: Buffer.concat(fileBuffer), filename, mimeType });
+        });
+
+        bb.on('error', reject);
+        req.pipe(bb);
       });
     };
 
@@ -522,6 +557,7 @@ export class WebChannel implements Channel {
               role: m.role,
               content: m.content,
               parts: m.parts ? JSON.parse(m.parts) : null,
+              attachment: m.attachment ? JSON.parse(m.attachment) : null,
               createdAt: m.created_at,
             })),
             hasMore: messages.length === limit,
@@ -540,12 +576,14 @@ export class WebChannel implements Channel {
             return;
           }
           const parts = body.parts ? JSON.stringify(body.parts) : undefined;
+          const attachment = body.attachment ? JSON.stringify(body.attachment) : undefined;
           const message = addConversationMessage(
             db,
             convId,
             body.role || 'user',
             body.content,
             parts,
+            attachment,
           );
           sendJson(201, {
             message: {
@@ -553,11 +591,71 @@ export class WebChannel implements Channel {
               role: message.role,
               content: message.content,
               parts: message.parts ? JSON.parse(message.parts) : null,
+              attachment: message.attachment ? JSON.parse(message.attachment) : null,
               createdAt: message.created_at,
             },
           });
           return;
         }
+      }
+
+      // Route: POST /api/upload
+      if (pathname === '/api/upload' && method === 'POST') {
+        try {
+          const { file, filename, mimeType } = await parseMultipart();
+          const ext = path.extname(filename).toLowerCase();
+
+          if (!ALLOWED_EXTENSIONS.includes(ext)) {
+            sendError(400, `仅支持 ${ALLOWED_EXTENSIONS.join(' ')} 格式的文件`);
+            return;
+          }
+
+          if (file.length > MAX_FILE_SIZE) {
+            sendError(413, `文件大小不能超过 ${MAX_FILE_SIZE / 1024 / 1024}MB`);
+            return;
+          }
+
+          const safeName = filename.replace(/[^a-zA-Z0-9._\-\u4e00-\u9fff]/g, '_');
+          const timestamp = Date.now();
+          const savedName = `${timestamp}_${safeName}`;
+          const fileId = `f_${timestamp}`;
+
+          const uploadUrl = new URL(req.url!, `http://localhost`);
+          const workspaceId = uploadUrl.searchParams.get('workspaceId');
+
+          let uploadDir: string;
+          if (workspaceId) {
+            const ws = workspace.getWorkspace(db, workspaceId);
+            if (ws) {
+              uploadDir = path.join(ws.path, 'uploads');
+            } else {
+              uploadDir = path.join(DATA_DIR, 'uploads');
+            }
+          } else {
+            uploadDir = path.join(DATA_DIR, 'uploads');
+          }
+
+          fs.mkdirSync(uploadDir, { recursive: true });
+          const filePath = path.join(uploadDir, savedName);
+          fs.writeFileSync(filePath, file);
+
+          const relativePath = `uploads/${savedName}`;
+          const parsed = await parseFile(file, mimeType, filename, filePath);
+
+          sendJson(200, {
+            fileId,
+            filename,
+            mimeType,
+            size: file.length,
+            extractedText: parsed.text,
+            filePath: relativePath,
+          });
+        } catch (err) {
+          logger.error({ err }, 'File upload error');
+          const message = err instanceof Error ? err.message : 'Upload failed';
+          sendError(500, message);
+        }
+        return;
       }
 
       // No matching API route
@@ -594,6 +692,12 @@ export class WebChannel implements Channel {
       sender?: string;
       workspaceId?: string;
       conversationId?: string;
+      attachment?: {
+        fileId: string;
+        filename: string;
+        extractedText: string;
+        filePath: string;
+      };
     },
   ): void {
     if (msg.type === 'message' && msg.content) {
@@ -630,6 +734,7 @@ export class WebChannel implements Channel {
         is_from_me: false,
         workspaceId: msg.workspaceId,
         conversationId: msg.conversationId,
+        attachment: msg.attachment,
       });
 
       logger.info(
