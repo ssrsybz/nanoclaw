@@ -45,4 +45,5 @@ agents-sdk-docs
 .claude.bak/
 .playwright-mcp/
 test-sdk-env.mjs
+test-*
 web/tsconfig.tsbuildinfo
