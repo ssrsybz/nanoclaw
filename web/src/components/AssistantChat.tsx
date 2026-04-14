@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useChatRuntime } from '../useChatRuntime';
-import { useStore, type ThinkingPart, type ContentPart } from '../store';
+import { useStore, type ThinkingPart, type ContentPart, type AttachmentInfo } from '../store';
 
 function Thread() {
   return (
@@ -43,7 +43,7 @@ function MessageList() {
     <div className="space-y-4">
       {messages.map((msg, i) =>
         msg.role === 'user' ? (
-          <UserMessage key={i} content={msg.content} />
+          <UserMessage key={i} content={msg.content} attachment={msg.attachment} />
         ) : (
           <AssistantMessage key={i} parts={msg.parts} content={msg.content} />
         )
@@ -63,10 +63,16 @@ function MessageList() {
   );
 }
 
-function UserMessage({ content }: { content: string }) {
+function UserMessage({ content, attachment }: { content: string; attachment?: AttachmentInfo | null }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-br-md bg-indigo-600 text-white text-sm whitespace-pre-wrap">
+        {attachment && (
+          <div className="flex items-center gap-1.5 mb-1 pb-1.5 border-b border-white/20">
+            <span>📄</span>
+            <span className="text-white/80 text-xs">{attachment.filename}</span>
+          </div>
+        )}
         {content}
       </div>
     </div>
@@ -154,13 +160,62 @@ function AssistantMessage({ content, parts }: { content: string; parts?: Content
 function Composer() {
   const [input, setInput] = useState('');
   const [isComposing, setIsComposing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [attachment, setAttachment] = useState<{
+    fileId: string;
+    filename: string;
+    extractedText: string;
+    filePath: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const typing = useStore((s) => s.typing);
+  const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+    if (!['.docx', '.xlsx', '.pdf'].includes(ext)) {
+      alert('仅支持 .docx .xlsx .pdf 格式的文件');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`/api/upload?workspaceId=${activeWorkspaceId}`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || '上传失败');
+      }
+      const data = await res.json();
+      setAttachment({
+        fileId: data.fileId,
+        filename: data.filename,
+        extractedText: data.extractedText,
+        filePath: data.filePath,
+      });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '上传失败');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleSend = () => {
-    if (!input.trim() || typing || isComposing) return;
+    if ((!input.trim() && !attachment) || typing || isComposing || uploading) return;
     const content = input.trim();
     setInput('');
-    window.dispatchEvent(new CustomEvent('nanoclaw-send', { detail: { content } }));
+    window.dispatchEvent(new CustomEvent('nanoclaw-send', {
+      detail: { content, attachment },
+    }));
+    setAttachment(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -176,7 +231,34 @@ function Composer() {
 
   return (
     <div className="px-4 py-3 border-t border-white/10">
+      {attachment && (
+        <div className="flex items-center gap-2 mb-2 px-1">
+          <span className="text-xs text-white/60">📄</span>
+          <span className="text-xs text-white/80 bg-white/5 px-2 py-1 rounded">{attachment.filename}</span>
+          <button
+            onClick={() => setAttachment(null)}
+            className="text-white/30 hover:text-white/60 text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="flex items-end gap-2 bg-[#16213e] rounded-xl border border-white/10 px-3 py-2 focus-within:border-indigo-500">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".docx,.xlsx,.pdf"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="text-white/40 hover:text-white/70 disabled:opacity-30 transition-colors flex-shrink-0 text-lg leading-none"
+          title="添加附件"
+        >
+          {uploading ? '⏳' : '📎'}
+        </button>
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -197,7 +279,7 @@ function Composer() {
         ) : (
           <button
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() && !attachment}
             className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm transition-colors flex-shrink-0"
           >
             Send
