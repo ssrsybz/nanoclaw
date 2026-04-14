@@ -7,6 +7,13 @@ export interface RegisteredGroup {
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
 }
 
+export interface AttachmentInfo {
+  fileId: string;
+  filename: string;
+  extractedText: string;
+  filePath: string;
+}
+
 export interface NewMessage {
   id: string;
   chat_jid: string;
@@ -18,6 +25,7 @@ export interface NewMessage {
   is_bot_message?: boolean;
   workspaceId?: string;
   conversationId?: string;
+  attachment?: AttachmentInfo;
 }
 
 export interface ScheduledTask {

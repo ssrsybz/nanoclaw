@@ -204,6 +204,13 @@ function createSchema(database: Database.Database): void {
   } catch {
     /* column already exists */
   }
+
+  // Migration: add attachment column to conversation_messages
+  try {
+    database.exec(`ALTER TABLE conversation_messages ADD COLUMN attachment TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
 }
 
 export function initDatabase(): void {
@@ -847,6 +854,7 @@ export interface ConversationMessageRow {
   role: 'user' | 'assistant';
   content: string;
   parts: string | null;
+  attachment: string | null;
   created_at: string;
 }
 
@@ -922,12 +930,13 @@ export function addConversationMessage(
   role: 'user' | 'assistant',
   content: string,
   parts?: string,
+  attachment?: string,
 ): ConversationMessageRow {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(id, conversationId, role, content, parts ?? null, now);
+    `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, attachment, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, conversationId, role, content, parts ?? null, attachment ?? null, now);
   // Update conversation updated_at
   db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
     now,
@@ -939,6 +948,7 @@ export function addConversationMessage(
     role,
     content,
     parts: parts ?? null,
+    attachment: attachment ?? null,
     created_at: now,
   };
 }
