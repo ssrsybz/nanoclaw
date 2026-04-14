@@ -16,7 +16,21 @@ export function formatMessages(
 ): string {
   const lines = messages.map((m) => {
     const displayTime = formatLocalTime(m.timestamp, timezone);
-    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}">${escapeXml(m.content)}</message>`;
+    let body = escapeXml(m.content);
+
+    if (m.attachment) {
+      const attachBlock = [
+        `[附件: ${m.attachment.filename}]`,
+        `---文件内容开始---`,
+        m.attachment.extractedText,
+        `---文件内容结束---`,
+        '',
+        `原始文件已保存至: ${m.attachment.filePath}`,
+      ].join('\n');
+      body = `${attachBlock}\n\n${body}`;
+    }
+
+    return `<message sender="${escapeXml(m.sender_name)}" time="${escapeXml(displayTime)}">${body}</message>`;
   });
 
   const header = `<context timezone="${escapeXml(timezone)}" />\n`;
