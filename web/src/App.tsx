@@ -119,22 +119,29 @@ export default function App() {
   // Forward send/cancel events from AssistantChat to WebSocket
   useEffect(() => {
     const handleSend = async (e: Event) => {
-      const { content } = (e as CustomEvent).detail;
+      const { content, attachment } = (e as CustomEvent).detail;
       const ws = wsRef.current;
       const conversationId = activeConversationIdRef.current;
       const workspaceId = activeWorkspaceIdRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       if (!conversationId || !workspaceId) return;
+
+      if (!content && !attachment) return;
+
       setTyping(true);
       // Store user message immediately for instant display
-      appendMessage(conversationId, { role: 'user', content });
+      appendMessage(conversationId, { role: 'user', content: content || '', attachment });
 
       // Persist message to backend via API
       try {
         await fetch(`/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'user', content }),
+          body: JSON.stringify({
+            role: 'user',
+            content: content || `[附件: ${attachment?.filename}]`,
+            attachment,
+          }),
         });
       } catch (err) {
         console.error('Failed to persist message:', err);
@@ -142,9 +149,10 @@ export default function App() {
 
       ws.send(JSON.stringify({
         type: 'message',
-        content,
+        content: content || `[附件: ${attachment?.filename}]`,
         workspaceId,
         conversationId,
+        attachment,
       }));
     };
 
