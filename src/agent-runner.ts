@@ -21,6 +21,36 @@ import { RegisteredGroup } from './types.js';
 import { pushStatus } from './star-office-reporter.js';
 
 /**
+ * Find Claude Code executable by checking common installation paths.
+ * Returns the path if found, or 'claude' to rely on PATH.
+ */
+function findClaudeCodeExecutable(): string {
+  // If user explicitly set a path, use it
+  if (process.env.CLAUDE_CODE_PATH) {
+    return process.env.CLAUDE_CODE_PATH;
+  }
+
+  // Common installation paths to check
+  const commonPaths = [
+    '/opt/homebrew/bin/claude',
+    '/usr/local/bin/claude',
+    '/usr/bin/claude',
+    process.env.HOME + '/.local/bin/claude',
+  ];
+
+  for (const path of commonPaths) {
+    if (fs.existsSync(path)) {
+      logger.debug({ path }, 'Found Claude Code executable');
+      return path;
+    }
+  }
+
+  // Fall back to 'claude' and rely on PATH
+  logger.debug('Using Claude Code from PATH');
+  return 'claude';
+}
+
+/**
  * Read ANTHROPIC_* environment variables from ~/.claude/settings.json.
  * This ensures the API credentials are available even when the user's shell
  * doesn't have them injected (e.g., outside VSCode).
@@ -642,7 +672,7 @@ export async function runAgentDirect(
         },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
-        pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH || 'claude',
+        pathToClaudeCodeExecutable: findClaudeCodeExecutable(),
         stderr: (data) => {
           const stderrStr = typeof data === 'string' ? data : String(data);
           logger.info({ group: group.name, stderr: stderrStr.slice(0, 500) }, 'Claude stderr');
