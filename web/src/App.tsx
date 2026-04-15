@@ -101,6 +101,8 @@ export default function App() {
             break;
 
           case 'stream_end': {
+            // Debug: log received data
+            console.log('[stream_end] Received:', { model: data.model, apiCalls: data.apiCalls });
             // Persist the complete assistant turn to backend
             finishAssistantTurn(conversationId, data.model, data.apiCalls);
             setTyping(false);

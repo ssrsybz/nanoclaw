@@ -71,6 +71,18 @@ function MessageList() {
 
   if (messages.length === 0) return null;
 
+  // Debug: log messages with metadata
+  const assistantMessages = messages.filter(m => m.role === 'assistant');
+  if (assistantMessages.length > 0) {
+    const lastAssistant = assistantMessages[assistantMessages.length - 1];
+    console.log('[MessageList] Last assistant message:', {
+      hasModel: !!lastAssistant.model,
+      hasApiCalls: !!lastAssistant.apiCalls,
+      model: lastAssistant.model,
+      apiCalls: lastAssistant.apiCalls,
+    });
+  }
+
   return (
     <div className="space-y-4">
       {messages.map((msg, i) =>
@@ -268,16 +280,31 @@ function AssistantMessage({
 
   // Model and API call stats (only show when turn is complete)
   const showMetadata = model || apiCalls;
-  const metadataSection = showMetadata && (
-    <div className="mt-1 ml-4">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/30">
-        {model && <span className="font-mono">{model}</span>}
+  const metadataSection = (
+    <div className="mt-2 ml-1">
+      <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 rounded bg-white/5 border border-white/10">
+        {model && (
+          <span className="text-xs text-indigo-400 font-medium">🤖 {model}</span>
+        )}
+        {model && apiCalls && (
+          <span className="text-xs text-white/20">|</span>
+        )}
         {apiCalls && (
-          <span className="font-mono">
-            {apiCalls.total} 调用
-            {apiCalls.assistantThinking > 0 && ` · ${apiCalls.assistantThinking} 思考`}
-            {apiCalls.assistantToolUse > 0 && ` · ${apiCalls.assistantToolUse} 工具`}
-          </span>
+          <>
+            <span className="text-xs text-white/70 font-medium">{apiCalls.total} 调用</span>
+            {apiCalls.assistantThinking > 0 && (
+              <>
+                <span className="text-xs text-white/20">|</span>
+                <span className="text-xs text-amber-400/80">💭 {apiCalls.assistantThinking} 思考</span>
+              </>
+            )}
+            {apiCalls.assistantToolUse > 0 && (
+              <>
+                <span className="text-xs text-white/20">|</span>
+                <span className="text-xs text-emerald-400/80">🔧 {apiCalls.assistantToolUse} 工具</span>
+              </>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -287,7 +314,7 @@ function AssistantMessage({
     <div className="flex justify-start group/message">
       <div className="flex flex-col gap-1 max-w-[85%]">
         {renderedParts}
-        {metadataSection}
+        {showMetadata ? metadataSection : <div className="text-white/10 text-xs mt-1">[无元数据]</div>}
       </div>
     </div>
   );
