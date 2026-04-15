@@ -785,26 +785,6 @@ export class WebChannel implements Channel {
       timestamp,
     };
 
-    // Store assistant messages to conversation_messages if conversationId is present
-    if (conversationId && data.type === 'assistant' && data.content) {
-      try {
-        const db = getDb();
-        const id = `web-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-        db.prepare(
-          `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(id, conversationId, 'assistant', data.content, null, timestamp);
-        db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
-          timestamp,
-          conversationId,
-        );
-      } catch (err) {
-        logger.warn(
-          { err, conversationId },
-          'Failed to store assistant message to conversation_messages',
-        );
-      }
-    }
-
     // If conversationId is provided, route to the specific client
     // Otherwise broadcast to all clients (legacy behavior)
     if (conversationId) {
