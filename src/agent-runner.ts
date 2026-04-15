@@ -779,6 +779,7 @@ export async function runAgentDirect(
                   .join('');
               }
               if (text) {
+                logger.debug({ toolResultLength: text.length }, 'Sending tool_result to stream');
                 await onOutput({
                   status: 'success',
                   result: null,
@@ -786,6 +787,8 @@ export async function runAgentDirect(
                   streamType: 'tool_result',
                   streamData: { toolOutput: text },
                 });
+              } else {
+                logger.debug({ toolUseId: part.tool_use_id }, 'Tool result has no text content, skipping');
               }
             }
           }

@@ -1,0 +1,83 @@
+<h2>附件上传的交互方式</h2>
+<p class="subtitle">选择你喜欢的附件上传交互方式</p>
+
+<div class="cards">
+  <div class="card" data-choice="button" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 A：附件按钮</div>
+        <div class="mockup-body" style="padding: 16px; background: #0a0e1a;">
+          <div style="display:flex; align-items:center; gap:8px; background:#16213e; border-radius:12px; padding:10px 14px; border:1px solid rgba(255,255,255,0.1);">
+            <button style="background:#4f46e5; color:white; border:none; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center;">📎</button>
+            <div style="flex:1; color:rgba(255,255,255,0.2); font-size:14px;">输入消息...</div>
+            <button style="background:#4f46e5; color:white; border:none; border-radius:8px; padding:6px 14px; font-size:13px;">Send</button>
+          </div>
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <div style="background:#16213e; border:1px solid rgba(99,102,241,0.5); border-radius:8px; padding:6px 10px; display:flex; align-items:center; gap:6px;">
+              <span style="color:white; font-size:12px;">📄 report.xlsx</span>
+              <span style="color:rgba(255,255,255,0.4); cursor:pointer; font-size:14px;">✕</span>
+            </div>
+          </div>
+          <p style="text-align:center; color:rgba(255,255,255,0.2); font-size:10px; margin-top:6px;">Enter 发送 · Shift+Enter 换行</p>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 附件按钮（点击上传）</h3>
+      <p>输入框左侧加 📎 按钮，点击弹出文件选择器。上传后显示文件标签，可删除。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="dragdrop" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 B：拖拽上传</div>
+        <div class="mockup-body" style="padding: 16px; background: #0a0e1a;">
+          <div style="border:2px dashed rgba(99,102,241,0.6); border-radius:12px; padding:24px; text-align:center; background:rgba(99,102,241,0.05);">
+            <div style="font-size:32px; margin-bottom:8px;">📂</div>
+            <div style="color:rgba(255,255,255,0.6); font-size:14px;">拖拽文件到这里上传</div>
+            <div style="color:rgba(255,255,255,0.3); font-size:12px; margin-top:4px;">支持 .docx .xlsx .pdf · 最大 10MB</div>
+          </div>
+          <div style="margin-top:8px; display:flex; align-items:center; gap:8px; background:#16213e; border-radius:12px; padding:10px 14px; border:1px solid rgba(255,255,255,0.1);">
+            <div style="flex:1; color:rgba(255,255,255,0.2); font-size:14px;">输入消息...</div>
+            <button style="background:#4f46e5; color:white; border:none; border-radius:8px; padding:6px 14px; font-size:13px;">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 拖拽上传（拖到聊天区域）</h3>
+      <p>将文件拖拽到聊天窗口即可上传。输入框保持简洁，不增加额外按钮。</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="both" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">方案 C：按钮 + 拖拽</div>
+        <div class="mockup-body" style="padding: 16px; background: #0a0e1a;">
+          <div style="display:flex; align-items:center; gap:8px; background:#16213e; border-radius:12px; padding:10px 14px; border:1px solid rgba(255,255,255,0.1);">
+            <button style="background:#4f46e5; color:white; border:none; border-radius:8px; padding:6px 10px; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center;">📎</button>
+            <div style="flex:1; color:rgba(255,255,255,0.2); font-size:14px;">输入消息... 或拖拽文件到这里</div>
+            <button style="background:#4f46e5; color:white; border:none; border-radius:8px; padding:6px 14px; font-size:13px;">Send</button>
+          </div>
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <div style="background:#16213e; border:1px solid rgba(99,102,241,0.5); border-radius:8px; padding:6px 10px; display:flex; align-items:center; gap:6px;">
+              <span style="color:white; font-size:12px;">📄 report.xlsx</span>
+              <span style="color:rgba(255,255,255,0.4); cursor:pointer; font-size:14px;">✕</span>
+            </div>
+            <div style="background:#16213e; border:1px solid rgba(99,102,241,0.5); border-radius:8px; padding:6px 10px; display:flex; align-items:center; gap:6px;">
+              <span style="color:white; font-size:12px;">📄 分析报告.pdf</span>
+              <span style="color:rgba(255,255,255,0.4); cursor:pointer; font-size:14px;">✕</span>
+            </div>
+          </div>
+          <p style="text-align:center; color:rgba(255,255,255,0.2); font-size:10px; margin-top:6px;">Enter 发送 · Shift+Enter 换行</p>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 按钮 + 拖拽（两者兼备）</h3>
+      <p>📎 按钮点击上传 + 拖拽上传双入口。最灵活但 UI 稍复杂。</p>
+    </div>
+  </div>
+</div>

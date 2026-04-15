@@ -568,6 +568,8 @@ export class WebChannel implements Channel {
               content: m.content,
               parts: m.parts ? JSON.parse(m.parts) : null,
               attachment: m.attachment ? JSON.parse(m.attachment) : null,
+              model: m.model,
+              apiCalls: m.api_calls ? JSON.parse(m.api_calls) : null,
               createdAt: m.created_at,
             })),
             hasMore: messages.length === limit,
@@ -587,6 +589,8 @@ export class WebChannel implements Channel {
           }
           const parts = body.parts ? JSON.stringify(body.parts) : undefined;
           const attachment = body.attachment ? JSON.stringify(body.attachment) : undefined;
+          const model = body.model ? String(body.model) : undefined;
+          const apiCalls = body.apiCalls ? JSON.stringify(body.apiCalls) : undefined;
           const message = addConversationMessage(
             db,
             convId,
@@ -594,6 +598,8 @@ export class WebChannel implements Channel {
             body.content,
             parts,
             attachment,
+            model,
+            apiCalls,
           );
           sendJson(201, {
             message: {
@@ -602,6 +608,8 @@ export class WebChannel implements Channel {
               content: message.content,
               parts: message.parts ? JSON.parse(message.parts) : null,
               attachment: message.attachment ? JSON.parse(message.attachment) : null,
+              model: message.model,
+              apiCalls: message.api_calls ? JSON.parse(message.api_calls) : null,
               createdAt: message.created_at,
             },
           });
@@ -797,6 +805,11 @@ export class WebChannel implements Channel {
 
   async sendStructured(jid: string, data: StreamMessage): Promise<void> {
     if (!this.wss) return;
+
+    // Debug logging for tool_result
+    if (data.type === 'tool_result') {
+      logger.debug({ contentLength: data.content?.length || 0 }, 'Sending tool_result to WebSocket');
+    }
 
     // Use conversationId from data if provided
     const conversationId = data.conversationId;

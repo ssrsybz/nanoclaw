@@ -117,6 +117,8 @@ export default function App() {
                   role: 'assistant',
                   content: lastAssistant.content,
                   parts: lastAssistant.parts,
+                  model: data.model,
+                  apiCalls: data.apiCalls,
                 }),
               }).catch((err) => console.error('Failed to persist assistant turn:', err));
             }

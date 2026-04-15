@@ -321,19 +321,31 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       const res = await fetch(`/api/workspaces/${activeWorkspaceId}/conversations/${conversationId}/messages`);
       const data = await res.json();
       if (data.messages) {
-        set((state) => ({
-          messages: {
-            ...state.messages,
-            [conversationId]: data.messages.map((m: any) => ({
+        set((state) => {
+          const existingMessages = state.messages[conversationId] || [];
+          // Merge: preserve metadata from existing messages, update content from DB
+          const existingMap = new Map(existingMessages.map((m) => [m.id, m]));
+          const mergedMessages = data.messages.map((m: any) => {
+            const existing = existingMap.get(m.id);
+            return {
               id: m.id,
               role: m.role,
               content: m.content,
               parts: m.parts,
               attachment: m.attachment,
-              _turnComplete: true, // Historical messages are always complete
-            })),
-          },
-        }));
+              _turnComplete: true,
+              // Preserve metadata from existing message if available
+              model: existing?.model || m.model || undefined,
+              apiCalls: existing?.apiCalls || m.apiCalls || undefined,
+            };
+          });
+          return {
+            messages: {
+              ...state.messages,
+              [conversationId]: mergedMessages,
+            },
+          };
+        });
       }
     } catch (err) {
       console.error('Failed to load conversation messages:', err);

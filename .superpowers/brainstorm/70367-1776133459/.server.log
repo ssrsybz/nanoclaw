@@ -1,0 +1,5 @@
+{"type":"server-started","port":53598,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:53598","screen_dir":"/Users/h3glove/projeck/nanoclaw/.superpowers/brainstorm/70367-1776133459"}
+{"type":"screen-added","file":"/Users/h3glove/projeck/nanoclaw/.superpowers/brainstorm/70367-1776133459/upload-interaction.html"}
+{"source":"user-event","type":"click","text":"方案 A：附件按钮\n        \n          \n            📎\n            输入消息...\n            Send\n          \n          \n            \n              📄 report.xlsx\n              ✕\n            \n          \n          Enter 发送 · Shift+Enter 换行\n        \n      \n    \n    \n      A. 附件按钮（点击上传）\n      输入框左侧加 📎 按钮，点击弹出文件选择器。上传后显示文件标签，可删除。","choice":"button","id":null,"timestamp":1776134374167}
+{"type":"screen-added","file":"/Users/h3glove/projeck/nanoclaw/.superpowers/brainstorm/70367-1776133459/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}

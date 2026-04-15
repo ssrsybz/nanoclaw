@@ -211,6 +211,20 @@ function createSchema(database: Database.Database): void {
   } catch {
     // Column already exists, ignore
   }
+
+  // Migration: add model column to conversation_messages
+  try {
+    database.exec(`ALTER TABLE conversation_messages ADD COLUMN model TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
+
+  // Migration: add api_calls column to conversation_messages
+  try {
+    database.exec(`ALTER TABLE conversation_messages ADD COLUMN api_calls TEXT`);
+  } catch {
+    // Column already exists, ignore
+  }
 }
 
 export function initDatabase(): void {
@@ -855,6 +869,8 @@ export interface ConversationMessageRow {
   content: string;
   parts: string | null;
   attachment: string | null;
+  model: string | null;
+  api_calls: string | null;
   created_at: string;
 }
 
@@ -931,12 +947,14 @@ export function addConversationMessage(
   content: string,
   parts?: string,
   attachment?: string,
+  model?: string,
+  apiCalls?: string,
 ): ConversationMessageRow {
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, attachment, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(id, conversationId, role, content, parts ?? null, attachment ?? null, now);
+    `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, attachment, model, api_calls, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, conversationId, role, content, parts ?? null, attachment ?? null, model ?? null, apiCalls ?? null, now);
   // Update conversation updated_at
   db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
     now,
@@ -949,6 +967,8 @@ export function addConversationMessage(
     content,
     parts: parts ?? null,
     attachment: attachment ?? null,
+    model: model ?? null,
+    api_calls: apiCalls ?? null,
     created_at: now,
   };
 }
