@@ -12,6 +12,8 @@ export default function App() {
     setTyping,
     appendMessage,
     appendPart,
+    startAssistantTurn,
+    finishAssistantTurn,
     activeWorkspaceId,
     activeConversationId,
   } = useStore();
@@ -48,7 +50,6 @@ export default function App() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        // Use conversationId for routing, fallback to activeConversationId
         const conversationId = data.conversationId || activeConversationIdRef.current;
         if (!conversationId) return;
 
@@ -61,34 +62,70 @@ export default function App() {
             setTyping(true);
             break;
 
-          // Legacy text message (backward compat)
-          case 'message':
-            if (data.content) {
-              setTyping(false);
-              appendMessage(conversationId, { role: 'assistant', content: data.content });
+          case 'stream_start':
+            // Agent starts working — create empty assistant turn container
+            setTyping(true);
+            startAssistantTurn(conversationId);
+            break;
+
+          case 'assistant': {
+            // Check if there's an in-progress assistant turn to append to
+            const msgs = useStore.getState().messages[conversationId] || [];
+            const lastMsg = msgs[msgs.length - 1];
+            if (lastMsg?.role === 'assistant' && !lastMsg._turnComplete) {
+              // Append to existing turn
+              appendPart(conversationId, { type: 'text', text: data.content });
+            } else {
+              // Create new turn (backward compat for non-stream_start servers)
+              appendMessage(conversationId, {
+                role: 'assistant',
+                content: data.content,
+                parts: [{ type: 'text', text: data.content }],
+              });
             }
             break;
+          }
 
-          // Streaming: new assistant text chunk
-          case 'assistant':
-            setTyping(false);
-            appendMessage(conversationId, { role: 'assistant', content: data.content, parts: [{ type: 'text', text: data.content }] });
-            break;
-
-          // Streaming: thinking/reasoning content
           case 'thinking':
             appendPart(conversationId, { type: 'thinking', text: data.content });
             break;
 
-          // Streaming: tool use
           case 'tool_use':
             appendPart(conversationId, { type: 'tool_use', toolName: data.toolName, toolInput: data.toolInput });
             break;
 
-          // Streaming: tool result
           case 'tool_result':
             if (data.content) {
-              appendPart(conversationId, { type: 'text', text: data.content });
+              appendPart(conversationId, { type: 'tool_result', content: data.content });
+            }
+            break;
+
+          case 'stream_end': {
+            // Persist the complete assistant turn to backend
+            finishAssistantTurn(conversationId);
+            setTyping(false);
+            // Persist complete turn (including parts) to backend
+            const currentMsgs = useStore.getState().messages[conversationId] || [];
+            const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === 'assistant' && m._turnComplete);
+            if (lastAssistant && activeWorkspaceIdRef.current) {
+              fetch(`/api/workspaces/${activeWorkspaceIdRef.current}/conversations/${conversationId}/messages`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  role: 'assistant',
+                  content: lastAssistant.content,
+                  parts: lastAssistant.parts,
+                }),
+              }).catch((err) => console.error('Failed to persist assistant turn:', err));
+            }
+            break;
+          }
+
+          // Legacy fallback
+          case 'message':
+            if (data.content) {
+              setTyping(false);
+              appendMessage(conversationId, { role: 'assistant', content: data.content });
             }
             break;
         }
@@ -100,7 +137,7 @@ export default function App() {
     ws.onerror = () => {
       setConnected(false);
     };
-  }, [setConnected, setTyping, appendMessage, appendPart]);
+  }, [setConnected, setTyping, appendMessage, appendPart, startAssistantTurn, finishAssistantTurn]);
 
   useEffect(() => {
     fetchWorkspaces().then(() => {
