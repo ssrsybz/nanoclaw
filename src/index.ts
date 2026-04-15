@@ -291,6 +291,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  // Send stream_start event to mark the beginning of an Agent turn
+  if (channel.sendStructured) {
+    await channel.sendStructured(chatJid, {
+      type: 'stream_start',
+      workspaceId: workspaceId ?? null,
+      conversationId: conversationId ?? null,
+    });
+  }
+
   let streamingSent = false;
   const output = await runAgent(
     group,
@@ -364,6 +373,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     },
   );
 
+  // Send stream_end event to mark the end of an Agent turn
+  if (channel.sendStructured) {
+    await channel.sendStructured(chatJid, {
+      type: 'stream_end',
+      workspaceId: workspaceId ?? null,
+      conversationId: conversationId ?? null,
+    });
+  }
   await channel.setTyping?.(chatJid, false);
 
   if (output === 'error' || hadError) {
