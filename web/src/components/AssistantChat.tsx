@@ -8,7 +8,39 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useChatRuntime } from '../useChatRuntime';
-import { useStore, type ThinkingPart, type ContentPart, type AttachmentInfo } from '../store';
+import { useStore, type ContentPart, type AttachmentInfo } from '../store';
+
+// Extracted markdown components to avoid re-creating on each render
+const markdownComponents = {
+  code(props: any) {
+    const { children, className, ...rest } = props;
+    const match = /language-(\w+)/.exec(className || '');
+    const inline = !match;
+    return inline ? (
+      <code className="bg-[#0f0f1a] text-indigo-300 px-1.5 py-0.5 rounded text-[0.85em] font-mono" {...rest}>
+        {children}
+      </code>
+    ) : (
+      <SyntaxHighlighter
+        style={oneDark}
+        language={match[1]}
+        PreTag="div"
+        className="!bg-[#0f0f1a] !rounded-lg !my-2 !border !border-white/10"
+      >
+        {String(children).replace(/\n$/, '')}
+      </SyntaxHighlighter>
+    );
+  },
+  pre({ children }: any) {
+    return <>{children}</>;
+  },
+  a({ href, children }: any) {
+    return <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">{children}</a>;
+  },
+  blockquote({ children }: any) {
+    return <blockquote className="border-l-3 border-indigo-500 pl-3 my-2 text-white/60">{children}</blockquote>;
+  },
+};
 
 function Thread() {
   return (
@@ -79,79 +111,148 @@ function UserMessage({ content, attachment }: { content: string; attachment?: At
   );
 }
 
-function AssistantMessage({ content, parts }: { content: string; parts?: ContentPart[] }) {
-  const [thinkingOpen, setThinkingOpen] = useState(false);
-
-  // Extract thinking parts only
-  const thinkingParts = parts?.filter((p): p is ThinkingPart => p.type === 'thinking') || [];
-  const hasThinking = thinkingParts.length > 0;
-
+function ThinkingBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="flex justify-start group/message">
-      <div className="flex flex-col gap-1 max-w-[85%]">
-        {/* Thinking section (collapsible) */}
-        {hasThinking && (
-          <button
-            onClick={() => setThinkingOpen(!thinkingOpen)}
-            className="flex items-center gap-1.5 text-xs text-indigo-400/70 hover:text-indigo-400 transition-colors px-1"
-          >
-            <svg
-              className={`w-3 h-3 transition-transform ${thinkingOpen ? 'rotate-90' : ''}`}
-              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-            {thinkingOpen ? '隐藏思考过程' : `思考过程 (${thinkingParts.length})`}
-          </button>
-        )}
-        {hasThinking && thinkingOpen && (
-          <div className="px-4 py-3 rounded-xl bg-[#0f0f1a] border border-indigo-500/20 text-white/50 text-xs space-y-2">
-            {thinkingParts.map((p, i) => (
-              <p key={i} className="whitespace-pre-wrap">{p.text}</p>
-            ))}
-          </div>
-        )}
+    <>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs text-indigo-400/70 hover:text-indigo-400 transition-colors px-1"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform ${open ? 'rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        {open ? '隐藏思考过程' : '思考过程'}
+      </button>
+      {open && (
+        <div className="px-4 py-3 rounded-xl bg-[#0f0f1a] border border-indigo-500/20 text-white/50 text-xs">
+          <p className="whitespace-pre-wrap">{text}</p>
+        </div>
+      )}
+    </>
+  );
+}
 
-        {/* Main content with Markdown */}
-        <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-[#16213e] text-white/90 text-sm border border-white/5">
+function ToolUseCard({ toolName, toolInput }: { toolName: string; toolInput?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="my-1.5 rounded-lg border border-amber-500/20 bg-amber-500/5 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-amber-400/80 hover:text-amber-400 transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform flex-shrink-0 ${open ? 'rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="font-mono font-medium">{toolName}</span>
+        <span className="text-white/30 ml-auto">tool call</span>
+      </button>
+      {open && toolInput && (
+        <div className="px-3 pb-2">
+          <pre className="text-[11px] text-white/50 whitespace-pre-wrap font-mono bg-[#0f0f1a] rounded p-2 max-h-60 overflow-auto">
+            {toolInput}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolResultCard({ content }: { content: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="my-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/5 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-emerald-400/80 hover:text-emerald-400 transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform flex-shrink-0 ${open ? 'rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span>tool result</span>
+        <span className="text-white/30 ml-auto">{content.length} chars</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-2">
+          <pre className="text-[11px] text-white/50 whitespace-pre-wrap font-mono bg-[#0f0f1a] rounded p-2 max-h-60 overflow-auto">
+            {content}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssistantMessage({ content, parts }: { content: string; parts?: ContentPart[] }) {
+  // Backward compat: if no parts, render content directly
+  if (!parts || parts.length === 0) {
+    return (
+      <div className="flex justify-start">
+        <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-[#16213e] text-white/90 text-sm border border-white/5 max-w-[85%]">
           <div className="markdown-body">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                code(props) {
-                  const { children, className, ...rest } = props;
-                  const match = /language-(\w+)/.exec(className || '');
-                  const inline = !match;
-                  return inline ? (
-                    <code className="bg-[#0f0f1a] text-indigo-300 px-1.5 py-0.5 rounded text-[0.85em] font-mono" {...rest}>
-                      {children}
-                    </code>
-                  ) : (
-                    <SyntaxHighlighter
-                      style={oneDark}
-                      language={match[1]}
-                      PreTag="div"
-                      className="!bg-[#0f0f1a] !rounded-lg !my-2 !border !border-white/10"
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  );
-                },
-                pre({ children }) {
-                  return <>{children}</>;
-                },
-                a({ href, children }) {
-                  return <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">{children}</a>;
-                },
-                blockquote({ children }) {
-                  return <blockquote className="border-l-3 border-indigo-500 pl-3 my-2 text-white/60">{children}</blockquote>;
-                },
-              }}
-            >
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {content}
             </ReactMarkdown>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Render parts in order, merging consecutive text parts
+  const renderedParts: React.ReactNode[] = [];
+  let textBuffer = '';
+
+  const flushText = () => {
+    if (textBuffer) {
+      renderedParts.push(
+        <div key={`text-${renderedParts.length}`} className="px-4 py-3 rounded-2xl rounded-bl-md bg-[#16213e] text-white/90 text-sm border border-white/5">
+          <div className="markdown-body">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+              {textBuffer}
+            </ReactMarkdown>
+          </div>
+        </div>
+      );
+      textBuffer = '';
+    }
+  };
+
+  for (const part of parts) {
+    if (part.type === 'text') {
+      textBuffer += part.text;
+    } else if (part.type === 'thinking') {
+      flushText();
+      renderedParts.push(
+        <ThinkingBlock key={`think-${renderedParts.length}`} text={part.text} />
+      );
+    } else if (part.type === 'tool_use') {
+      flushText();
+      renderedParts.push(
+        <ToolUseCard key={`tool-${renderedParts.length}`} toolName={part.toolName} toolInput={part.toolInput} />
+      );
+    } else if (part.type === 'tool_result') {
+      flushText();
+      renderedParts.push(
+        <ToolResultCard key={`result-${renderedParts.length}`} content={part.content} />
+      );
+    }
+  }
+  flushText();
+
+  return (
+    <div className="flex justify-start group/message">
+      <div className="flex flex-col gap-1 max-w-[85%]">
+        {renderedParts}
       </div>
     </div>
   );
