@@ -339,6 +339,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
+        } else if (result.streamType === 'tool_result' && result.streamData?.toolOutput) {
+          await channel.sendStructured(chatJid, {
+            type: 'tool_result',
+            content: result.streamData.toolOutput,
+            workspaceId: workspaceId ?? null,
+            conversationId: conversationId ?? null,
+          });
         }
         return;
       }

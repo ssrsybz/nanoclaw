@@ -9,13 +9,9 @@ import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 
 import {
-  ANTHROPIC_API_KEY,
-  ANTHROPIC_BASE_URL,
-  ANTHROPIC_AUTH_TOKEN,
   ASSISTANT_NAME,
   DATA_DIR,
   GROUPS_DIR,
-  MODEL,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -47,7 +43,7 @@ export interface AgentOutput {
   newSessionId?: string;
   error?: string;
   // Streaming fields for real-time UI updates
-  streamType?: 'assistant' | 'thinking' | 'tool_use' | 'result';
+  streamType?: 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'result';
   streamData?: {
     text?: string;
     thinking?: string;
@@ -573,28 +569,10 @@ export async function runAgentDirect(
       );
     }
 
-    // Build environment for SDK (includes LLM credentials if using third-party)
-    // NOTE: SDK reads ANTHROPIC_BASE_URL directly from process.env, not from options.env
-    if (ANTHROPIC_API_KEY) {
-      process.env.ANTHROPIC_API_KEY = ANTHROPIC_API_KEY;
-    }
-    if (ANTHROPIC_BASE_URL) {
-      process.env.ANTHROPIC_BASE_URL = ANTHROPIC_BASE_URL;
-    }
-    if (ANTHROPIC_AUTH_TOKEN) {
-      process.env.ANTHROPIC_AUTH_TOKEN = ANTHROPIC_AUTH_TOKEN;
-    }
-
-    const sdkEnv: Record<string, string | undefined> = {
-      ...process.env,
-    };
-
     // Run the query
     for await (const message of query({
       prompt: prompt,
       options: {
-        model: MODEL,
-        env: sdkEnv,
         cwd: groupDir,
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
         resume: sessionId,
@@ -603,7 +581,6 @@ export async function runAgentDirect(
         allowedTools,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
-        settingSources: ['project', 'user'],
         pathToClaudeCodeExecutable: '/opt/homebrew/bin/claude',
         stderr: (data) => {
           const stderrStr = typeof data === 'string' ? data : String(data);
@@ -671,6 +648,43 @@ export async function runAgentDirect(
                       : JSON.stringify(part.input, null, 2),
                 },
               });
+            }
+          }
+        }
+      }
+
+      // Handle tool_result parts from user messages (SDK puts tool results in user messages)
+      if (message.type === 'user' && onOutput) {
+        const userMsg = message as unknown as {
+          message?: {
+            content?: Array<{
+              type: string;
+              tool_use_id?: string;
+              content?: string | Array<{ type: string; text?: string }>;
+            }>;
+          };
+        };
+        if (userMsg.message?.content) {
+          for (const part of userMsg.message.content) {
+            if (part.type === 'tool_result') {
+              let text = '';
+              if (typeof part.content === 'string') {
+                text = part.content;
+              } else if (Array.isArray(part.content)) {
+                text = part.content
+                  .filter((b: { type: string }) => b.type === 'text')
+                  .map((b: { text?: string }) => b.text || '')
+                  .join('');
+              }
+              if (text) {
+                await onOutput({
+                  status: 'success',
+                  result: null,
+                  newSessionId,
+                  streamType: 'tool_result',
+                  streamData: { toolOutput: text },
+                });
+              }
             }
           }
         }
