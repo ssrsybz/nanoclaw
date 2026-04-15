@@ -17,8 +17,8 @@ describe('file-parser', () => {
       expect(ALLOWED_EXTENSIONS).toHaveLength(3);
     });
 
-    it('MAX_FILE_SIZE is 10MB', () => {
-      expect(MAX_FILE_SIZE).toBe(10 * 1024 * 1024);
+    it('MAX_FILE_SIZE is 20MB', () => {
+      expect(MAX_FILE_SIZE).toBe(20 * 1024 * 1024);
     });
 
     it('MAX_TEXT_LENGTH is 50000', () => {
@@ -81,7 +81,7 @@ describe('file-parser', () => {
       const buffer = Buffer.alloc(MAX_FILE_SIZE + 1024 * 1024);
       await expect(
         parseFile(buffer, 'application/pdf', 'big.pdf'),
-      ).rejects.toThrow('11.0MB');
+      ).rejects.toThrow('21.0MB');
     });
 
     it('parses a small xlsx file in memory', async () => {

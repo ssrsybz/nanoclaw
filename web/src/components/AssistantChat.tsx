@@ -77,7 +77,7 @@ function MessageList() {
         msg.role === 'user' ? (
           <UserMessage key={i} content={msg.content} attachment={msg.attachment} />
         ) : (
-          <AssistantMessage key={i} parts={msg.parts} content={msg.content} />
+          <AssistantMessage key={i} parts={msg.parts} content={msg.content} model={msg.model} apiCalls={msg.apiCalls} />
         )
       )}
       {isRunning && (
@@ -192,7 +192,24 @@ function ToolResultCard({ content }: { content: string }) {
   );
 }
 
-function AssistantMessage({ content, parts }: { content: string; parts?: ContentPart[] }) {
+function AssistantMessage({
+  content,
+  parts,
+  model,
+  apiCalls,
+}: {
+  content: string;
+  parts?: ContentPart[];
+  model?: string;
+  apiCalls?: {
+    total: number;
+    systemInit: number;
+    assistantThinking: number;
+    assistantText: number;
+    assistantToolUse: number;
+    toolResults: number;
+  };
+}) {
   // Backward compat: if no parts, render content directly
   if (!parts || parts.length === 0) {
     return (
@@ -249,10 +266,28 @@ function AssistantMessage({ content, parts }: { content: string; parts?: Content
   }
   flushText();
 
+  // Model and API call stats (only show when turn is complete)
+  const showMetadata = model || apiCalls;
+  const metadataSection = showMetadata && (
+    <div className="mt-1 ml-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/30">
+        {model && <span className="font-mono">{model}</span>}
+        {apiCalls && (
+          <span className="font-mono">
+            {apiCalls.total} 调用
+            {apiCalls.assistantThinking > 0 && ` · ${apiCalls.assistantThinking} 思考`}
+            {apiCalls.assistantToolUse > 0 && ` · ${apiCalls.assistantToolUse} 工具`}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex justify-start group/message">
       <div className="flex flex-col gap-1 max-w-[85%]">
         {renderedParts}
+        {metadataSection}
       </div>
     </div>
   );
@@ -279,6 +314,12 @@ function Composer() {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!['.docx', '.xlsx', '.pdf'].includes(ext)) {
       alert('仅支持 .docx .xlsx .pdf 格式的文件');
+      return;
+    }
+
+    const maxSize = 20 * 1024 * 1024; // 20MB
+    if (file.size > maxSize) {
+      alert(`文件大小超过限制 (20MB)，请压缩后重试`);
       return;
     }
 

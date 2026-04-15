@@ -960,15 +960,27 @@ export function getConversationMessages(
   before?: string,
 ): ConversationMessageRow[] {
   if (before) {
+    // Pagination: load older messages before 'before' timestamp, in chronological order
+    // so they can be prepended to the existing message list
+    // Use rowid ASC as tiebreaker for stable ordering (monotonically increasing)
     return db
       .prepare(
-        `SELECT * FROM conversation_messages WHERE conversation_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
+        `SELECT * FROM conversation_messages WHERE conversation_id = ? AND created_at < ? ORDER BY created_at ASC, rowid ASC LIMIT ?`,
       )
       .all(conversationId, before, limit) as ConversationMessageRow[];
   }
+  // Default: return the newest N messages in chronological order (oldest-first)
+  // so the chat UI shows newest at the bottom. Uses a subquery to first pick
+  // the newest N messages (DESC), then re-sorts them ASC for display.
+  // rowid guarantees insertion-order stability when timestamps are equal.
   return db
     .prepare(
-      `SELECT * FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT ?`,
+      `SELECT * FROM (
+        SELECT *, rowid AS _rowid FROM conversation_messages
+        WHERE conversation_id = ?
+        ORDER BY created_at DESC, rowid DESC
+        LIMIT ?
+      ) ORDER BY created_at ASC, _rowid ASC`,
     )
     .all(conversationId, limit) as ConversationMessageRow[];
 }

@@ -85,6 +85,15 @@ export interface StreamMessage {
   toolOutput?: string;
   workspaceId?: string | null;
   conversationId?: string | null;
+  model?: string;
+  apiCalls?: {
+    total: number;
+    systemInit: number;
+    assistantThinking: number;
+    assistantText: number;
+    assistantToolUse: number;
+    toolResults: number;
+  };
 }
 
 // Callback type that channels use to deliver inbound messages

@@ -216,11 +216,12 @@ export class WebChannel implements Channel {
 
     const parseMultipart = (): Promise<{ file: Buffer; filename: string; mimeType: string }> => {
       return new Promise((resolve, reject) => {
-        const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE } });
+        const bb = busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE }, defParamCharset: 'utf8' });
         let fileBuffer: Buffer[] = [];
         let filename = '';
         let mimeType = '';
         let fileFound = false;
+        let truncated = false;
 
         bb.on('file', (name, stream, info) => {
           if (name !== 'file' || fileFound) {
@@ -231,11 +232,20 @@ export class WebChannel implements Channel {
           filename = info.filename;
           mimeType = info.mimeType;
           stream.on('data', (chunk: Buffer) => fileBuffer.push(chunk));
+          stream.on('end', () => {
+            if (stream.truncated) {
+              truncated = true;
+            }
+          });
         });
 
         bb.on('finish', () => {
           if (!fileFound) {
             reject(new Error('No file field in upload'));
+            return;
+          }
+          if (truncated) {
+            reject(new Error(`文件大小超过限制 (${MAX_FILE_SIZE / 1024 / 1024}MB)，请压缩后重试`));
             return;
           }
           resolve({ file: Buffer.concat(fileBuffer), filename, mimeType });
@@ -651,9 +661,10 @@ export class WebChannel implements Channel {
             filePath: relativePath,
           });
         } catch (err) {
-          logger.error({ err }, 'File upload error');
           const message = err instanceof Error ? err.message : 'Upload failed';
-          sendError(500, message);
+          const isSizeError = message.includes('超过限制');
+          logger.error({ err }, 'File upload error');
+          sendError(isSizeError ? 413 : 500, message);
         }
         return;
       }
@@ -723,13 +734,28 @@ export class WebChannel implements Channel {
         false,
       );
 
+      // Embed attachment text into content so the agent can see it via the
+      // messages table (which has no attachment column).
+      let enrichedContent = msg.content;
+      if (msg.attachment?.extractedText) {
+        const attachBlock = [
+          `[附件: ${msg.attachment.filename}]`,
+          `---文件内容开始---`,
+          msg.attachment.extractedText,
+          `---文件内容结束---`,
+          '',
+          `原始文件已保存至: ${msg.attachment.filePath}`,
+        ].join('\n');
+        enrichedContent = `${attachBlock}\n\n${msg.content}`;
+      }
+
       // Deliver message
       this.opts.onMessage(WEB_JID, {
         id: `web-${Date.now()}`,
         chat_jid: WEB_JID,
         sender: 'web-user',
         sender_name: sender,
-        content: msg.content,
+        content: enrichedContent,
         timestamp,
         is_from_me: false,
         workspaceId: msg.workspaceId,

@@ -67,6 +67,17 @@ export interface ChatMessage {
   attachment?: AttachmentInfo;
   /** Internal: marks if this assistant turn is complete (received stream_end) */
   _turnComplete?: boolean;
+  /** Model used for this response */
+  model?: string;
+  /** API call statistics */
+  apiCalls?: {
+    total: number;
+    systemInit: number;
+    assistantThinking: number;
+    assistantText: number;
+    assistantToolUse: number;
+    toolResults: number;
+  };
 }
 
 interface WorkspaceStore {
@@ -115,7 +126,7 @@ interface WorkspaceStore {
   /** Start a new assistant turn (create or reuse incomplete turn) */
   startAssistantTurn: (conversationId: string) => void;
   /** Mark the current assistant turn as complete */
-  finishAssistantTurn: (conversationId: string) => void;
+  finishAssistantTurn: (conversationId: string, model?: string, apiCalls?: ChatMessage['apiCalls']) => void;
 }
 
 export const useStore = create<WorkspaceStore>((set, get) => ({
@@ -435,7 +446,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       };
     }),
 
-  finishAssistantTurn: (conversationId) =>
+  finishAssistantTurn: (conversationId, model, apiCalls) =>
     set((state) => {
       const msgs = state.messages[conversationId] || [];
       if (msgs.length === 0) return state;
@@ -446,7 +457,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
             ...state.messages,
             [conversationId]: [
               ...msgs.slice(0, -1),
-              { ...lastMsg, _turnComplete: true },
+              { ...lastMsg, _turnComplete: true, model, apiCalls },
             ],
           },
         };

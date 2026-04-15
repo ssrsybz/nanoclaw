@@ -29,6 +29,7 @@ export class GroupQueue {
   private waitingGroups: string[] = [];
   private processMessagesFn: ((groupJid: string) => Promise<boolean>) | null =
     null;
+  private onFailureFn: ((groupJid: string) => Promise<void>) | null = null;
   private shuttingDown = false;
 
   private getGroup(groupJid: string): GroupState {
@@ -60,6 +61,10 @@ export class GroupQueue {
 
   setProcessMessagesFn(fn: (groupJid: string) => Promise<boolean>): void {
     this.processMessagesFn = fn;
+  }
+
+  setOnFailure(fn: (groupJid: string) => Promise<void>): void {
+    this.onFailureFn = fn;
   }
 
   enqueueMessageCheck(groupJid: string): void {
@@ -243,6 +248,12 @@ export class GroupQueue {
         'Max retries exceeded, dropping messages (will retry on next incoming message)',
       );
       state.retryCount = 0;
+      // Notify the user that the agent failed
+      if (this.onFailureFn) {
+        this.onFailureFn(groupJid).catch((err) =>
+          logger.error({ groupJid, err }, 'Failed to send error notification to user'),
+        );
+      }
       return;
     }
 

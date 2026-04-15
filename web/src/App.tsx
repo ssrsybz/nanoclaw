@@ -102,7 +102,7 @@ export default function App() {
 
           case 'stream_end': {
             // Persist the complete assistant turn to backend
-            finishAssistantTurn(conversationId);
+            finishAssistantTurn(conversationId, data.model, data.apiCalls);
             setTyping(false);
             // Persist complete turn (including parts) to backend
             const currentMsgs = useStore.getState().messages[conversationId] || [];

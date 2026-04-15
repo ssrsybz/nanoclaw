@@ -301,7 +301,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   let streamingSent = false;
-  const output = await runAgent(
+  const agentResult = await runAgent(
     group,
     prompt,
     chatJid,
@@ -386,11 +386,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       type: 'stream_end',
       workspaceId: workspaceId ?? null,
       conversationId: conversationId ?? null,
+      model: agentResult.model,
+      apiCalls: agentResult.apiCalls,
     });
   }
   await channel.setTyping?.(chatJid, false);
 
-  if (output === 'error' || hadError) {
+  if (agentResult.status === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
@@ -421,7 +423,7 @@ async function runAgent(
   enabledSkills?: string[],
   workspaceId?: string,
   onOutput?: (output: AgentOutput) => Promise<void>,
-): Promise<'success' | 'error'> {
+): Promise<{ status: 'success' | 'error'; model?: string; apiCalls?: AgentOutput['apiCalls'] }> {
   const isMain = group.isMain === true;
   // Use workspace-aware session key so each workspace has isolated conversation history
   const sessionKey = workspaceId
@@ -503,13 +505,17 @@ async function runAgent(
 
     if (output.status === 'error') {
       logger.error({ group: group.name, error: output.error }, 'Agent error');
-      return 'error';
+      return { status: 'error' };
     }
 
-    return 'success';
+    return {
+      status: 'success',
+      model: output.model,
+      apiCalls: output.apiCalls,
+    };
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');
-    return 'error';
+    return { status: 'error' };
   } finally {
     queue.unregisterAgent(chatJid);
   }
@@ -843,6 +849,16 @@ async function main(): Promise<void> {
     },
   });
   queue.setProcessMessagesFn(processGroupMessages);
+  queue.setOnFailure(async (chatJid: string) => {
+    const channel = findChannel(channels, chatJid);
+    if (!channel) return;
+    const errMsg = '抱歉，处理消息时发生错误，请稍后重试。';
+    if (channel.sendStructured) {
+      await channel.sendStructured(chatJid, { type: 'assistant', content: errMsg });
+    } else {
+      await channel.sendMessage(chatJid, errMsg);
+    }
+  });
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');

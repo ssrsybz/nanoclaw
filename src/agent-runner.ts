@@ -24,11 +24,12 @@ import { pushStatus } from './star-office-reporter.js';
  * Read ANTHROPIC_* environment variables from ~/.claude/settings.json.
  * This ensures the API credentials are available even when the user's shell
  * doesn't have them injected (e.g., outside VSCode).
+ * Returns both env vars and model info for logging.
  */
-function loadClaudeEnv(): Record<string, string> {
+function loadClaudeEnv(): { env: Record<string, string>; model: string; baseUrl: string } {
   try {
     const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-    if (!fs.existsSync(settingsPath)) return {};
+    if (!fs.existsSync(settingsPath)) return { env: {}, model: 'unknown', baseUrl: 'unknown' };
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     const env = settings.env || {};
     // Only return ANTHROPIC_* related keys
@@ -45,9 +46,13 @@ function loadClaudeEnv(): Record<string, string> {
         'Loaded ANTHROPIC_* env from settings.json',
       );
     }
-    return result;
+    return {
+      env: result,
+      model: env.ANTHROPIC_MODEL || 'unknown',
+      baseUrl: env.ANTHROPIC_BASE_URL || 'unknown',
+    };
   } catch {
-    return {};
+    return { env: {}, model: 'unknown', baseUrl: 'unknown' };
   }
 }
 
@@ -74,6 +79,15 @@ export interface AgentOutput {
   result: string | null;
   newSessionId?: string;
   error?: string;
+  model?: string;
+  apiCalls?: {
+    total: number;
+    systemInit: number;
+    assistantThinking: number;
+    assistantText: number;
+    assistantToolUse: number;
+    toolResults: number;
+  };
   // Streaming fields for real-time UI updates
   streamType?: 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'result';
   streamData?: {
@@ -505,6 +519,15 @@ export async function runAgentDirect(
     let lastAssistantUuid: string | undefined;
     let messageCount = 0;
     let resultCount = 0;
+    // Track API call counts by message type
+    const apiCallCounts = {
+      systemInit: 0,
+      assistantThinking: 0,
+      assistantText: 0,
+      assistantToolUse: 0,
+      userToolResult: 0,
+      other: 0,
+    };
 
     // Start polling for input messages
     inputCheckInterval = setInterval(checkInputFiles, 1000);
@@ -599,6 +622,7 @@ export async function runAgentDirect(
     }
 
     // Run the query
+    const { env: claudeEnv, model, baseUrl } = loadClaudeEnv();
     for await (const message of query({
       prompt: prompt,
       options: {
@@ -611,7 +635,7 @@ export async function runAgentDirect(
         env: {
           // Load from settings.json to ensure API credentials are available
           // even when the shell doesn't have ANTHROPIC_* vars injected
-          ...loadClaudeEnv(),
+          ...claudeEnv,
           ...process.env,
           // Keep debug on for diagnostics (remove in production)
           DEBUG_CLAUDE_AGENT_SDK: '1',
@@ -638,6 +662,11 @@ export async function runAgentDirect(
           : message.type;
       logger.debug(`[msg #${messageCount}] type=${msgType}`);
 
+      // Track API calls by message type
+      if (message.type === 'system' && (message as { subtype?: string }).subtype === 'init') {
+        apiCallCounts.systemInit++;
+      }
+
       if (message.type === 'assistant' && 'uuid' in message) {
         lastAssistantUuid = (message as { uuid: string }).uuid;
 
@@ -656,6 +685,7 @@ export async function runAgentDirect(
         if (onOutput && assistantMsg.message?.content) {
           for (const part of assistantMsg.message.content) {
             if (part.type === 'text' && part.text) {
+              apiCallCounts.assistantText++;
               await onOutput({
                 status: 'success',
                 result: null,
@@ -664,6 +694,7 @@ export async function runAgentDirect(
                 streamData: { text: part.text },
               });
             } else if (part.type === 'thinking' && part.thinking) {
+              apiCallCounts.assistantThinking++;
               await onOutput({
                 status: 'success',
                 result: null,
@@ -672,6 +703,7 @@ export async function runAgentDirect(
                 streamData: { thinking: part.thinking },
               });
             } else if (part.type === 'tool_use' && part.name) {
+              apiCallCounts.assistantToolUse++;
               await onOutput({
                 status: 'success',
                 result: null,
@@ -704,6 +736,9 @@ export async function runAgentDirect(
         if (userMsg.message?.content) {
           for (const part of userMsg.message.content) {
             if (part.type === 'tool_result') {
+              apiCallCounts.userToolResult++;
+              // Note: tool_result is NOT an API call - it's the result of local tool execution
+              // We track it separately to understand the full conversation flow
               let text = '';
               if (typeof part.content === 'string') {
                 text = part.content;
@@ -773,6 +808,12 @@ export async function runAgentDirect(
       }
     }
 
+    // Calculate total API calls (excluding tool_result which are local executions)
+    const totalApiCalls = apiCallCounts.systemInit +
+      apiCallCounts.assistantThinking +
+      apiCallCounts.assistantText +
+      apiCallCounts.assistantToolUse;
+
     const duration = Date.now() - startTime;
     logger.info(
       {
@@ -781,6 +822,16 @@ export async function runAgentDirect(
         messageCount,
         resultCount,
         newSessionId,
+        model,
+        baseUrl,
+        apiCalls: {
+          total: totalApiCalls,
+          systemInit: apiCallCounts.systemInit,
+          assistantThinking: apiCallCounts.assistantThinking,
+          assistantText: apiCallCounts.assistantText,
+          assistantToolUse: apiCallCounts.assistantToolUse,
+          toolResults: apiCallCounts.userToolResult,
+        },
       },
       'Agent completed',
     );
@@ -798,6 +849,15 @@ export async function runAgentDirect(
       status: 'success',
       result: null,
       newSessionId,
+      model,
+      apiCalls: {
+        total: totalApiCalls,
+        systemInit: apiCallCounts.systemInit,
+        assistantThinking: apiCallCounts.assistantThinking,
+        assistantText: apiCallCounts.assistantText,
+        assistantToolUse: apiCallCounts.assistantToolUse,
+        toolResults: apiCallCounts.userToolResult,
+      },
     };
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

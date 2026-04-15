@@ -77,6 +77,7 @@ describe('conversation CRUD', () => {
     addConversationMessage(db, conv.id, 'assistant', 'Hi there', parts);
     const messages = getConversationMessages(db, conv.id);
     expect(messages.length).toBe(2);
+    // Returned in chronological order (oldest-first) for chat display
     expect(messages[0].role).toBe('user');
     expect(messages[1].role).toBe('assistant');
     expect(JSON.parse(messages[1].parts!)).toEqual([
