@@ -42,7 +42,13 @@ export interface ToolUsePart {
   toolInput?: string;
 }
 
-export type ContentPart = TextPart | ThinkingPart | ToolUsePart;
+export interface ToolResultPart {
+  type: 'tool_result';
+  content: string;
+  toolUseId?: string;
+}
+
+export type ContentPart = TextPart | ThinkingPart | ToolUsePart | ToolResultPart;
 
 export interface AttachmentInfo {
   fileId: string;
@@ -59,6 +65,8 @@ export interface ChatMessage {
   parts?: ContentPart[];
   // File attachment info
   attachment?: AttachmentInfo;
+  /** Internal: marks if this assistant turn is complete (received stream_end) */
+  _turnComplete?: boolean;
 }
 
 interface WorkspaceStore {
@@ -104,6 +112,10 @@ interface WorkspaceStore {
   /** Append a content part to the last assistant message */
   appendPart: (conversationId: string, part: ContentPart) => void;
   clearMessages: (conversationId: string) => void;
+  /** Start a new assistant turn (create or reuse incomplete turn) */
+  startAssistantTurn: (conversationId: string) => void;
+  /** Mark the current assistant turn as complete */
+  finishAssistantTurn: (conversationId: string) => void;
 }
 
 export const useStore = create<WorkspaceStore>((set, get) => ({
@@ -307,6 +319,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
               content: m.content,
               parts: m.parts,
               attachment: m.attachment,
+              _turnComplete: true, // Historical messages are always complete
             })),
           },
         }));
@@ -401,4 +414,43 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
         [conversationId]: [],
       },
     })),
+
+  startAssistantTurn: (conversationId) =>
+    set((state) => {
+      const msgs = state.messages[conversationId] || [];
+      // If last message is an incomplete assistant turn, reuse it
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg?.role === 'assistant' && !lastMsg._turnComplete) {
+        return state; // Reuse existing
+      }
+      // Otherwise create new empty assistant message
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [
+            ...msgs,
+            { role: 'assistant' as const, content: '', parts: [] as ContentPart[] },
+          ],
+        },
+      };
+    }),
+
+  finishAssistantTurn: (conversationId) =>
+    set((state) => {
+      const msgs = state.messages[conversationId] || [];
+      if (msgs.length === 0) return state;
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg?.role === 'assistant' && !lastMsg._turnComplete) {
+        return {
+          messages: {
+            ...state.messages,
+            [conversationId]: [
+              ...msgs.slice(0, -1),
+              { ...lastMsg, _turnComplete: true },
+            ],
+          },
+        };
+      }
+      return state;
+    }),
 }));
