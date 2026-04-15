@@ -642,7 +642,7 @@ export async function runAgentDirect(
         },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
-        pathToClaudeCodeExecutable: '/opt/homebrew/bin/claude',
+        pathToClaudeCodeExecutable: process.env.CLAUDE_CODE_PATH || 'claude',
         stderr: (data) => {
           const stderrStr = typeof data === 'string' ? data : String(data);
           logger.info({ group: group.name, stderr: stderrStr.slice(0, 500) }, 'Claude stderr');
