@@ -4,6 +4,7 @@
  * For single-user trusted environments only
  */
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -18,6 +19,37 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 import { pushStatus } from './star-office-reporter.js';
+
+/**
+ * Read ANTHROPIC_* environment variables from ~/.claude/settings.json.
+ * This ensures the API credentials are available even when the user's shell
+ * doesn't have them injected (e.g., outside VSCode).
+ */
+function loadClaudeEnv(): Record<string, string> {
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    if (!fs.existsSync(settingsPath)) return {};
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const env = settings.env || {};
+    // Only return ANTHROPIC_* related keys
+    const anthropicKeys = Object.keys(env).filter(
+      (k) => k.startsWith('ANTHROPIC_') || k === 'API_TIMEOUT_MS',
+    );
+    const result: Record<string, string> = {};
+    for (const k of anthropicKeys) {
+      result[k] = String(env[k]);
+    }
+    if (Object.keys(result).length > 0) {
+      logger.debug(
+        { keys: Object.keys(result) },
+        'Loaded ANTHROPIC_* env from settings.json',
+      );
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
 
 // Sentinel markers for output parsing (consistent with container version)
 const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
@@ -576,12 +608,20 @@ export async function runAgentDirect(
         resumeSessionAt: undefined,
         systemPrompt: systemPrompt,
         allowedTools,
+        env: {
+          // Load from settings.json to ensure API credentials are available
+          // even when the shell doesn't have ANTHROPIC_* vars injected
+          ...loadClaudeEnv(),
+          ...process.env,
+          // Keep debug on for diagnostics (remove in production)
+          DEBUG_CLAUDE_AGENT_SDK: '1',
+        },
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
         pathToClaudeCodeExecutable: '/opt/homebrew/bin/claude',
         stderr: (data) => {
           const stderrStr = typeof data === 'string' ? data : String(data);
-          logger.debug(`Claude stderr: ${stderrStr.slice(0, 500)}`);
+          logger.info({ group: group.name, stderr: stderrStr.slice(0, 500) }, 'Claude stderr');
         },
         mcpServers: mcpServersConfig as
           | Record<
