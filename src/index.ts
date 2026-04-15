@@ -429,6 +429,16 @@ async function runAgent(
     : group.folder;
   const sessionId = sessions[sessionKey];
 
+  logger.info(
+    {
+      group: group.name,
+      sessionKey,
+      sessionId: sessionId || '(new)',
+      workspaceId,
+    },
+    'Agent session lookup',
+  );
+
   // Update tasks snapshot for agent to read (filtered by group)
   const tasks = getAllTasks();
   writeTasksSnapshot(

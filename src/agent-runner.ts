@@ -455,23 +455,20 @@ export async function runAgentDirect(
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
     let sessionId = input.sessionId;
-    // Validate that the session transcript file exists before resuming.
-    // The Claude CLI exits with code 1 when --resume references a
-    // non-existent session, which breaks the agent loop.
-    if (sessionId) {
-      const sessionsDir = getGroupSessionsDir(
-        input.groupFolder,
-        input.workspaceId,
-      );
-      const transcriptPath = path.join(sessionsDir, `${sessionId}.jsonl`);
-      if (!fs.existsSync(transcriptPath)) {
-        logger.debug(
-          { sessionId, path: transcriptPath },
-          'Session transcript not found, skipping resume',
-        );
-        sessionId = undefined;
-      }
-    }
+    // NOTE: We intentionally do NOT validate the session transcript file here.
+    // The Claude CLI stores session transcripts in its own internal directory
+    // (typically ~/.claude/projects/{cwd-hash}/sessions/), NOT in our
+    // data/sessions/ directory. Validating against the wrong path would
+    // always fail, causing every message to start a new session and lose
+    // all conversation context. Trust the session ID returned by the SDK.
+    logger.info(
+      {
+        sessionId: sessionId || '(new session)',
+        groupFolder: input.groupFolder,
+        workspaceId: input.workspaceId,
+      },
+      'Resuming agent session',
+    );
     let newSessionId: string | undefined;
     let lastAssistantUuid: string | undefined;
     let messageCount = 0;
@@ -692,7 +689,14 @@ export async function runAgentDirect(
 
       if (message.type === 'system' && message.subtype === 'init') {
         newSessionId = message.session_id;
-        logger.debug(`Session initialized: ${newSessionId}`);
+        logger.info(
+          {
+            sessionId: newSessionId,
+            previousSessionId: sessionId || '(none)',
+            isNewSession: !sessionId,
+          },
+          'Session initialized',
+        );
       }
 
       if (
