@@ -280,7 +280,7 @@ function AssistantMessage({
 
   // Model and API call stats (only show when turn is complete)
   const showMetadata = model || apiCalls;
-  const metadataSection = (
+  const metadataSection = showMetadata && (
     <div className="mt-2 ml-1">
       <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 rounded bg-white/5 border border-white/10">
         {model && (
@@ -314,7 +314,7 @@ function AssistantMessage({
     <div className="flex justify-start group/message">
       <div className="flex flex-col gap-1 max-w-[85%]">
         {renderedParts}
-        {showMetadata ? metadataSection : <div className="text-white/10 text-xs mt-1">[无元数据]</div>}
+        {metadataSection}
       </div>
     </div>
   );
