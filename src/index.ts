@@ -308,6 +308,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     workspacePath,
     enabledSkills,
     workspaceId,
+    conversationId,
     async (result) => {
       // Handle streaming messages (assistant, thinking, tool_use)
       if (result.streamType && channel.sendStructured) {
@@ -422,13 +423,16 @@ async function runAgent(
   workspacePath?: string,
   enabledSkills?: string[],
   workspaceId?: string,
+  conversationId?: string,
   onOutput?: (output: AgentOutput) => Promise<void>,
 ): Promise<{ status: 'success' | 'error'; model?: string; apiCalls?: AgentOutput['apiCalls'] }> {
   const isMain = group.isMain === true;
-  // Use workspace-aware session key so each workspace has isolated conversation history
-  const sessionKey = workspaceId
-    ? `${group.folder}--ws-${workspaceId}`
-    : group.folder;
+  // Use conversation-aware session key so each conversation has isolated context
+  const sessionKey = conversationId
+    ? `${group.folder}--conv-${conversationId}`
+    : workspaceId
+      ? `${group.folder}--ws-${workspaceId}`
+      : group.folder;
   const sessionId = sessions[sessionKey];
 
   logger.info(
