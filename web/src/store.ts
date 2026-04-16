@@ -102,7 +102,7 @@ interface WorkspaceStore {
   // Workspace methods
   setConnected: (v: boolean) => void;
   fetchWorkspaces: () => Promise<void>;
-  addWorkspace: () => Promise<void>;
+  addWorkspace: (path?: string) => Promise<void>;
   removeWorkspace: (id: string) => Promise<void>;
   switchWorkspace: (id: string) => Promise<void>;
 
@@ -156,16 +156,21 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
     }
   },
 
-  addWorkspace: async () => {
+  addWorkspace: async (folderPath?: string) => {
     try {
-      const pickerRes = await fetch('/api/folder-picker', { method: 'POST' });
-      const pickerData = await pickerRes.json();
-      if (!pickerData.path) return;
+      let wsPath = folderPath;
+      if (!wsPath) {
+        // Fallback to native folder picker
+        const pickerRes = await fetch('/api/folder-picker', { method: 'POST' });
+        const pickerData = await pickerRes.json();
+        if (!pickerData.path) return;
+        wsPath = pickerData.path;
+      }
 
       const res = await fetch('/api/workspaces', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: pickerData.path }),
+        body: JSON.stringify({ path: wsPath }),
       });
       const data = await res.json();
       if (!res.ok) {

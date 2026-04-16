@@ -1,6 +1,7 @@
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { WebSocket, WebSocketServer } from 'ws';
 
 import busboy from 'busboy';
@@ -417,7 +418,32 @@ export class WebChannel implements Channel {
         return;
       }
 
-      // Route: POST /api/folder-picker
+      // Route: GET /api/directory-list — browse server directories
+      if (pathname === '/api/directory-list' && method === 'GET') {
+        const requestedPath = searchParams.get('path') || os.homedir();
+        const resolvedPath = path.resolve(requestedPath);
+
+        // Block system directories
+        const blockedPrefixes = ['/etc', '/usr', '/sys', '/proc', '/dev', '/boot', '/sbin', '/bin', '/lib'];
+        if (blockedPrefixes.some((p) => resolvedPath === p || resolvedPath.startsWith(p + '/'))) {
+          sendJson(200, { path: resolvedPath, directories: [] });
+          return;
+        }
+
+        try {
+          const entries = fs.readdirSync(resolvedPath, { withFileTypes: true });
+          const directories = entries
+            .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+            .map((e) => ({ name: e.name, path: path.join(resolvedPath, e.name) }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          sendJson(200, { path: resolvedPath, directories });
+        } catch {
+          sendJson(200, { path: resolvedPath, directories: [] });
+        }
+        return;
+      }
+
+      // Route: POST /api/folder-picker (legacy — kept for backward compat)
       if (pathname === '/api/folder-picker' && method === 'POST') {
         const folderPath = await workspace.openFolderPicker();
         sendJson(200, { path: folderPath });
