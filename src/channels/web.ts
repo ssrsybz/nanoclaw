@@ -420,7 +420,7 @@ export class WebChannel implements Channel {
 
       // Route: GET /api/directory-list — browse server directories
       if (pathname === '/api/directory-list' && method === 'GET') {
-        const requestedPath = searchParams.get('path') || os.homedir();
+        const requestedPath = new URL(req.url!, 'http://localhost').searchParams.get('path') || os.homedir();
         const resolvedPath = path.resolve(requestedPath);
 
         // Block system directories

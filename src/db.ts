@@ -368,46 +368,11 @@ export function storeMessage(msg: NewMessage): void {
     msg.conversationId ?? null,
   );
 
-  // Also store in conversation_messages if conversationId is present
-  if (msg.conversationId) {
-    // Determine role: user messages have is_from_me=false and is_bot_message=false
-    // Assistant messages have is_from_me=true or is_bot_message=true
-    const role: 'user' | 'assistant' =
-      msg.is_from_me || msg.is_bot_message ? 'assistant' : 'user';
-    logger.info(
-      {
-        msgId: msg.id,
-        conversationId: msg.conversationId,
-        role,
-        contentLen: msg.content.length,
-      },
-      'Storing to conversation_messages',
-    );
-    try {
-      db.prepare(
-        `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run(msg.id, msg.conversationId, role, msg.content, null, msg.timestamp);
-      logger.info(
-        { conversationId: msg.conversationId },
-        'conversation_messages insert succeeded',
-      );
-      // Update conversation updated_at
-      db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
-        msg.timestamp,
-        msg.conversationId,
-      );
-    } catch (err) {
-      logger.error(
-        { err, msgId: msg.id, conversationId: msg.conversationId },
-        'Failed to store to conversation_messages',
-      );
-    }
-  } else {
-    logger.info(
-      { msgId: msg.id },
-      'conversationId not set, skipping conversation_messages',
-    );
-  }
+  // Note: conversation_messages are persisted by the frontend (POST /messages)
+  // and by stream_end for assistant turns.  We skip writing here to avoid:
+  //   1. Duplicate messages (frontend POST + backend storeMessage use different IDs)
+  //   2. Overwriting the user's original content with enriched attachment text
+  // The `messages` table above still stores the enriched content for agent context.
 }
 
 /**
