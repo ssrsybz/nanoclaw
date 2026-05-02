@@ -8,7 +8,7 @@ const HOME_DIR = process.env.HOME || os.homedir();
 const SENDER_ALLOWLIST_PATH = path.join(
   HOME_DIR,
   '.config',
-  'nanoclaw',
+  'okclaw',
   'sender-allowlist.json',
 );
 

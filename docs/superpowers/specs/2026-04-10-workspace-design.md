@@ -1,4 +1,4 @@
-# NanoClaw Workspace Feature Design
+# OKClaw Workspace Feature Design
 
 **Date:** 2026-04-10
 **Status:** Draft
@@ -6,7 +6,7 @@
 
 ## Overview
 
-Add a workspace concept to NanoClaw's web UI, allowing users to select any folder on their computer as a workspace. Each workspace has its own isolated CLAUDE.md and `.claude/skills/` directory. The web UI provides workspace switching, CLAUDE.md editing, and skill selection per workspace.
+Add a workspace concept to OKClaw's web UI, allowing users to select any folder on their computer as a workspace. Each workspace has its own isolated CLAUDE.md and `.claude/skills/` directory. The web UI provides workspace switching, CLAUDE.md editing, and skill selection per workspace.
 
 ## Requirements
 
@@ -44,7 +44,7 @@ interface Skill {
 ### Project Structure Changes
 
 ```
-nanoclaw/
+okclaw/
 ├── web/                              # NEW: React frontend project
 │   ├── src/
 │   │   ├── App.tsx                   # Three-panel layout
@@ -115,11 +115,11 @@ Responsibilities:
 Path validation rules:
 - Must be an absolute path
 - Must exist and be a directory
-- Must not be a parent of NanoClaw's own data directories (`store/`, `data/`, `groups/`)
+- Must not be a parent of OKClaw's own data directories (`store/`, `data/`, `groups/`)
 - Must not contain `..` segments after normalization
 - Symlinks are resolved via `fs.realpathSync()` before validation
 - System-sensitive directories (`/etc`, `/System`, `/usr`) are rejected
-- NanoClaw's own project root is allowed as a workspace (useful for self-development)
+- OKClaw's own project root is allowed as a workspace (useful for self-development)
 
 ### API Endpoints
 
@@ -425,7 +425,7 @@ User checks/unchecks skill checkbox
 ## Security Considerations
 
 - Path validation prevents traversal attacks (`..`, symlinks to sensitive dirs)
-- Workspace paths are restricted from NanoClaw's own data directories
+- Workspace paths are restricted from OKClaw's own data directories
 - API endpoints only accept workspace IDs from the database (not arbitrary paths)
 - Folder picker uses native OS dialog (user must explicitly choose)
 - Agent commands execute on host system (existing no-container mode trade-off)

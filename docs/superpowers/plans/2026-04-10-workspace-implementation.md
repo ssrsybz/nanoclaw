@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add workspace management to NanoClaw, allowing users to select computer folders as workspaces with isolated CLAUDE.md and skills, powered by a new React + assistant-ui frontend.
+**Goal:** Add workspace management to OKClaw, allowing users to select computer folders as workspaces with isolated CLAUDE.md and skills, powered by a new React + assistant-ui frontend.
 
 **Architecture:** Backend adds a `workspace.ts` module with SQLite storage, API endpoints on the existing WebChannel HTTP server, and workspace-aware agent invocation. Frontend is a separate React app in `web/` using Vite, assistant-ui for streaming chat, Zustand for state, and Tailwind CSS for styling. Build output goes to `store/public/` served by the existing web channel.
 
@@ -81,7 +81,7 @@ export interface Skill {
 
 - [ ] **Step 2: Verify TypeScript compiles**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw && npx tsc --noEmit`
+Run: `cd /Users/h3glove/projeck/okclaw && npx tsc --noEmit`
 Expected: No errors
 
 - [ ] **Step 3: Commit**
@@ -187,7 +187,7 @@ describe('workspace', () => {
 
   beforeEach(() => {
     db = _initTestDatabase();
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nanoclaw-ws-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okclaw-ws-test-'));
   });
 
   test('addWorkspace creates record and returns workspace', () => {
@@ -234,7 +234,7 @@ describe('workspace', () => {
   });
 
   test('listWorkspaces returns ordered by lastUsedAt', () => {
-    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'nanoclaw-ws-test-'));
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'okclaw-ws-test-'));
     const ws1 = addWorkspace(db, tmpDir);
     const ws2 = addWorkspace(db, dir2);
     updateLastUsed(db, ws1.id);
@@ -832,7 +832,7 @@ git commit -m "feat(workspace): route workspace context through message processi
 
 Run:
 ```bash
-cd /Users/h3glove/projeck/nanoclaw
+cd /Users/h3glove/projeck/okclaw
 mkdir -p web/src/components
 cd web
 npm init -y
@@ -842,7 +842,7 @@ npm init -y
 
 Run:
 ```bash
-cd /Users/h3glove/projeck/nanoclaw/web
+cd /Users/h3glove/projeck/okclaw/web
 npm install react react-dom @assistant-ui/react zustand
 npm install -D @vitejs/plugin-react vite typescript @types/react @types/react-dom tailwindcss @tailwindcss/vite
 ```
@@ -896,7 +896,7 @@ export default defineConfig({
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NanoClaw</title>
+  <title>OKClaw</title>
 </head>
 <body class="bg-[#1a1a2e] text-[#e4e4e7]">
   <div id="root"></div>
@@ -943,13 +943,13 @@ Install concurrently: `npm install -D concurrently`
 
 - [ ] **Step 9: Verify dev server starts**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw/web && npx vite`
+Run: `cd /Users/h3glove/projeck/okclaw/web && npx vite`
 Expected: Vite dev server starts on port 5173
 
 - [ ] **Step 10: Commit**
 
 ```bash
-cd /Users/h3glove/projeck/nanoclaw
+cd /Users/h3glove/projeck/okclaw
 git add web/ package.json
 git commit -m "feat(workspace): scaffold React frontend with Vite, assistant-ui, Tailwind"
 ```
@@ -1135,13 +1135,13 @@ export default function SkillsPanel() {
 
 - [ ] **Step 4: Verify frontend renders**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw/web && npx vite`
+Run: `cd /Users/h3glove/projeck/okclaw/web && npx vite`
 Open browser to http://localhost:5173 — should see three-panel layout with dark theme.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/h3glove/projeck/nanoclaw
+cd /Users/h3glove/projeck/okclaw
 git add web/
 git commit -m "feat(workspace): add Zustand store and three-panel App shell"
 ```
@@ -1171,7 +1171,7 @@ export default function WorkspaceSidebar() {
       {/* Header */}
       <div className="p-4 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-bold text-lg">NanoClaw</span>
+          <span className="font-bold text-lg">OKClaw</span>
           <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
         </div>
         <button onClick={addWorkspace} className="w-7 h-7 rounded bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center text-lg" title="Add workspace">+</button>
@@ -1443,7 +1443,7 @@ export default function ChatPanel() {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4">🐾</div>
-          <h2 className="text-xl font-bold mb-2">NanoClaw</h2>
+          <h2 className="text-xl font-bold mb-2">OKClaw</h2>
           <p className="text-white/40">Select a workspace to start chatting</p>
         </div>
       </div>
@@ -1526,7 +1526,7 @@ git commit -m "feat(workspace): implement ChatPanel with WebSocket messaging"
 
 Run:
 ```bash
-cd /Users/h3glove/projeck/nanoclaw
+cd /Users/h3glove/projeck/okclaw
 npm run build
 npm start
 ```

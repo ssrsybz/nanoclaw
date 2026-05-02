@@ -26,6 +26,10 @@ export interface NewMessage {
   workspaceId?: string;
   conversationId?: string;
   attachment?: AttachmentInfo;
+  skill?: {
+    name: string;
+    content: string;
+  };
 }
 
 export interface ScheduledTask {
@@ -78,11 +82,15 @@ export interface StreamMessage {
     | 'tool_use'
     | 'tool_result'
     | 'stream_start'
-    | 'stream_end';
+    | 'stream_end'
+    | 'conversation_renamed'
+    | 'ask_user_question';
   content?: string;
   toolName?: string;
   toolInput?: string;
   toolOutput?: string;
+  // Tool metadata for enhanced UI display
+  toolMeta?: ToolMeta;
   workspaceId?: string | null;
   conversationId?: string | null;
   model?: string;
@@ -94,6 +102,57 @@ export interface StreamMessage {
     assistantToolUse: number;
     toolResults: number;
   };
+  // For conversation_renamed event
+  newName?: string;
+  // For ask_user_question
+  questions?: Question[];
+  toolUseId?: string;
+}
+
+// Question types for AskUserQuestion tool
+export interface QuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export interface Question {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiSelect: boolean;
+}
+
+// User's answer to a question
+export interface QuestionAnswer {
+  question: string;
+  answer: string;
+  notes?: string;
+  preview?: string;
+}
+
+// Response from frontend for ask_user_question
+export interface AskUserQuestionResponse {
+  type: 'ask_user_question_response';
+  toolUseId: string;
+  conversationId: string;
+  answers: Record<string, string>;
+  annotations?: Record<string, { preview?: string; notes?: string }>;
+  cancelled?: boolean;
+}
+
+// WebSocket message types for frontend-backend communication
+export const WS_MSG_TYPES = {
+  SWITCH_CONVERSATION: 'switch_conversation',
+  ASK_USER_QUESTION_RESPONSE: 'ask_user_question_response',
+} as const;
+
+// Tool metadata for enhanced UI display
+export interface ToolMeta {
+  icon: string;           // emoji icon
+  displayText: string;    // friendly display text
+  status: 'pending' | 'running' | 'complete' | 'error';
+  detail?: string;        // optional detail info
 }
 
 // Callback type that channels use to deliver inbound messages
@@ -121,10 +180,17 @@ export interface Workspace {
   lastUsedAt: string | null;
 }
 
+export type SkillCategory = 'core' | 'mcp' | 'channel' | 'system' | 'workspace';
+
 export interface Skill {
-  name: string;
-  description: string;
+  name: string;           // English identifier
+  nameZh?: string;        // Chinese name (for display)
+  description: string;    // Description (Chinese preferred)
   path: string;
   enabled: boolean;
   hasSkillMd: boolean;
+  category?: SkillCategory;
+  icon?: string;          // Emoji icon
+  isBuiltin?: boolean;    // From SDK/MCP
+  isSystem?: boolean;     // From skills/ directory
 }

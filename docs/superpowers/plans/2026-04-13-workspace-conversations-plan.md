@@ -554,10 +554,10 @@ git commit -m "feat(store): add conversation state and CRUD methods"
 **Files:**
 - Modify: `web/src/App.tsx` (update WebSocket to include conversationId)
 
-- [ ] **Step 1: Update nanoclaw-send event to include conversationId**
+- [ ] **Step 1: Update okclaw-send event to include conversationId**
 
 ```typescript
-window.addEventListener('nanoclaw-send', handleSend);
+window.addEventListener('okclaw-send', handleSend);
 
 const handleSend = (e: Event) => {
   const { content, workspaceId } = (e as CustomEvent).detail;

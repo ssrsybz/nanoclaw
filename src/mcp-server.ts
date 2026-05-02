@@ -1,5 +1,5 @@
 /**
- * In-process MCP Server for NanoClaw
+ * In-process MCP Server for OKClaw
  * Provides MCP tools directly callable by the agent without stdio transport
  */
 import { z } from 'zod';
@@ -444,13 +444,13 @@ Use available_groups.json to find the JID for a group. The folder name must be c
  */
 export function getMcpToolNames(): string[] {
   return [
-    'mcp__nanoclaw__send_message',
-    'mcp__nanoclaw__schedule_task',
-    'mcp__nanoclaw__list_tasks',
-    'mcp__nanoclaw__pause_task',
-    'mcp__nanoclaw__resume_task',
-    'mcp__nanoclaw__cancel_task',
-    'mcp__nanoclaw__update_task',
-    'mcp__nanoclaw__register_group',
+    'mcp__okclaw__send_message',
+    'mcp__okclaw__schedule_task',
+    'mcp__okclaw__list_tasks',
+    'mcp__okclaw__pause_task',
+    'mcp__okclaw__resume_task',
+    'mcp__okclaw__cancel_task',
+    'mcp__okclaw__update_task',
+    'mcp__okclaw__register_group',
   ];
 }

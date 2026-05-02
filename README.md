@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/nanoclaw-logo.png" alt="NanoClaw" width="400">
+  <img src="assets/okclaw-logo.png" alt="OKClaw" width="400">
 </p>
 
 <p align="center">
@@ -9,24 +9,37 @@
 <p align="center">
   <a href="README_zh.md">中文</a>&nbsp; • &nbsp;
   <a href="README_ja.md">日本語</a>&nbsp; • &nbsp;
-  <a href="https://nanoclaw.dev">nanoclaw.dev</a>&nbsp; • &nbsp;
+  <a href="https://okclaw.dev">okclaw.dev</a>&nbsp; • &nbsp;
   <a href="https://discord.gg/VDdww8qS42"><img src="https://img.shields.io/discord/1470188214710046894?label=Discord&logo=discord&v=2" alt="Discord" valign="middle"></a>&nbsp; • &nbsp;
   <a href="repo-tokens"><img src="repo-tokens/badge.svg" alt="34.9k tokens, 17% of context window" valign="middle"></a>
 </p>
 
 ---
 
-## Why NanoClaw
+## Why OKClaw
 
 [OpenClaw](https://github.com/openclaw/openclaw) is a great project, but I can't trust complex software I don't understand to fully integrate into my life. OpenClaw has nearly 500k lines of code, 53 config files, and 70+ dependencies. Its security is application-level (whitelists, pairing codes), not true OS-level isolation. Everything runs in a single Node process with shared memory.
 
-NanoClaw delivers the same core functionality in a codebase small enough to fully understand: one process, a handful of files. The Claude Agent runs directly in the main process — no containers needed.
+OKClaw delivers the same core functionality in a codebase small enough to fully understand: one process, a handful of files. The Claude Agent runs directly in the main process — no containers needed.
 
 ## Quick Start
 
+### Option 1: Quick Start Script
+
 ```bash
-gh repo fork qwibitai/nanoclaw --clone
-cd nanoclaw
+./start.sh start    # Start in background
+./start.sh stop     # Stop service
+./start.sh restart  # Restart service
+./start.sh status   # Check status
+./start.sh logs     # View real-time logs
+./start.sh dev      # Foreground dev mode (hot reload)
+```
+
+### Option 2: Manual Start
+
+```bash
+gh repo fork qwibitai/okclaw --clone
+cd okclaw
 npm install
 npm run build
 npm run dev
@@ -35,14 +48,14 @@ npm run dev
 <details>
 <summary>Don't have GitHub CLI?</summary>
 
-1. Fork [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) on GitHub
-2. `git clone https://github.com/<your-username>/nanoclaw.git`
-3. `cd nanoclaw`
+1. Fork [qwibitai/okclaw](https://github.com/qwibitai/okclaw) on GitHub
+2. `git clone https://github.com/<your-username>/okclaw.git`
+3. `cd okclaw`
 4. `npm install && npm run build && npm run dev`
 
 </details>
 
-Then open your browser at `http://localhost:5173` and start chatting.
+Then open your browser at `http://localhost:3100` and start chatting.
 
 Alternatively, run `/setup` and Claude Code will handle everything: dependency installation, authentication, and service configuration.
 
@@ -50,9 +63,9 @@ Alternatively, run `/setup` and Claude Code will handle everything: dependency i
 
 ## Design Philosophy
 
-**Small enough to understand.** One process, a few source files, no microservices. Want to understand the entire NanoClaw codebase? Just ask Claude Code to walk you through it.
+**Small enough to understand.** One process, a few source files, no microservices. Want to understand the entire OKClaw codebase? Just ask Claude Code to walk you through it.
 
-**Built for individuals.** NanoClaw isn't a bloated framework — it's software that fits each user's needs. Fork it and let Claude Code modify it to your specifications.
+**Built for individuals.** OKClaw isn't a bloated framework — it's software that fits each user's needs. Fork it and let Claude Code modify it to your specifications.
 
 **Customization = code changes.** No config bloat. Want different behavior? Change the code. The codebase is small enough that this is safe.
 
@@ -93,7 +106,7 @@ Manage groups and tasks in the master channel (your self-chat):
 
 ## Customization
 
-NanoClaw doesn't use config files. Just tell Claude Code what you want:
+OKClaw doesn't use config files. Just tell Claude Code what you want:
 
 - "Change the trigger word to @Bob"
 - "Make responses shorter and more direct from now on"
@@ -108,7 +121,7 @@ The codebase is small enough that Claude can safely modify it.
 
 **Don't add features. Add skills.**
 
-If you want to add Telegram support, don't create a PR that adds Telegram to the core codebase. Instead, fork NanoClaw, make the code changes on a branch, and open a PR. We'll create a `skill/telegram` branch from your PR that other users can merge into their forks.
+If you want to add Telegram support, don't create a PR that adds Telegram to the core codebase. Instead, fork OKClaw, make the code changes on a branch, and open a PR. We'll create a `skill/telegram` branch from your PR that other users can merge into their forks.
 
 Users then run `/add-telegram` on their fork and get clean code that does only what they need — not a bloated system trying to support every use case.
 
@@ -133,7 +146,7 @@ Channels --> SQLite --> Message polling --> Agent (Claude Agent SDK) --> Respons
 
 Single Node.js process. Channels are added via skills and auto-register at startup — the orchestrator connects to all channels with credentials. The agent executes directly in the main process via the Claude Agent SDK. Per-group message queues with global concurrency control. File-system-based IPC.
 
-See the [docs site](https://docs.nanoclaw.dev/concepts/architecture) for full architecture details.
+See the [docs site](https://docs.okclaw.dev/concepts/architecture) for full architecture details.
 
 Key files:
 - `src/index.ts` — Orchestrator: state, message loop, agent invocation
@@ -152,15 +165,15 @@ Key files:
 
 **Does it work on Linux or Windows?**
 
-Yes. NanoClaw is pure Node.js and runs on macOS, Linux, and Windows (WSL2). Just run `/setup`.
+Yes. OKClaw is pure Node.js and runs on macOS, Linux, and Windows (WSL2). Just run `/setup`.
 
 **Is it secure?**
 
-The agent runs directly in the main process with full tool permissions. Recommended for trusted environments only. The codebase is small enough that you can audit every line. See the [security docs](https://docs.nanoclaw.dev/concepts/security) for details.
+The agent runs directly in the main process with full tool permissions. Recommended for trusted environments only. The codebase is small enough that you can audit every line. See the [security docs](https://docs.okclaw.dev/concepts/security) for details.
 
 **Why no config files?**
 
-We don't want config bloat. Each user should customize their NanoClaw to make the code do what they want, rather than configuring a generic system. If you prefer config files, you can have Claude add them.
+We don't want config bloat. Each user should customize their OKClaw to make the code do what they want, rather than configuring a generic system. If you prefer config files, you can have Claude add them.
 
 **Can I use third-party or open-source models?**
 
@@ -199,7 +212,7 @@ Questions or ideas? [Join Discord](https://discord.gg/VDdww8qS42).
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) or the [full release history](https://docs.nanoclaw.dev/changelog) on the docs site.
+See [CHANGELOG.md](CHANGELOG.md) or the [full release history](https://docs.okclaw.dev/changelog) on the docs site.
 
 ## License
 

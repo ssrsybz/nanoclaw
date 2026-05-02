@@ -862,9 +862,11 @@ export function getConversationsByWorkspace(
   db: Database.Database,
   workspaceId: string,
 ): ConversationRow[] {
+  // Stable sort: updated_at DESC, then id DESC as tiebreaker
+  // This ensures consistent ordering even when updated_at values are identical
   return db
     .prepare(
-      `SELECT * FROM conversations WHERE workspace_id = ? ORDER BY updated_at DESC`,
+      `SELECT * FROM conversations WHERE workspace_id = ? ORDER BY updated_at DESC, id DESC`,
     )
     .all(workspaceId) as ConversationRow[];
 }
@@ -936,6 +938,64 @@ export function addConversationMessage(
     api_calls: apiCalls ?? null,
     created_at: now,
   };
+}
+
+/**
+ * Update an existing conversation message (for streaming updates).
+ * Used to persist thinking/tool_use parts before stream_end.
+ */
+export function updateConversationMessage(
+  db: Database.Database,
+  messageId: string,
+  updates: {
+    content?: string;
+    parts?: string;
+    model?: string;
+    apiCalls?: string;
+  },
+): boolean {
+  const setClauses: string[] = [];
+  const values: (string | null)[] = [];
+
+  if (updates.content !== undefined) {
+    setClauses.push('content = ?');
+    values.push(updates.content);
+  }
+  if (updates.parts !== undefined) {
+    setClauses.push('parts = ?');
+    values.push(updates.parts);
+  }
+  if (updates.model !== undefined) {
+    setClauses.push('model = ?');
+    values.push(updates.model);
+  }
+  if (updates.apiCalls !== undefined) {
+    setClauses.push('api_calls = ?');
+    values.push(updates.apiCalls);
+  }
+
+  if (setClauses.length === 0) return false;
+
+  values.push(messageId);
+  const result = db
+    .prepare(`UPDATE conversation_messages SET ${setClauses.join(', ')} WHERE id = ?`)
+    .run(...values);
+
+  return result.changes > 0;
+}
+
+/**
+ * Get the last assistant message in a conversation (for streaming updates).
+ */
+export function getLastAssistantMessage(
+  db: Database.Database,
+  conversationId: string,
+): ConversationMessageRow | null {
+  return db
+    .prepare(
+      `SELECT * FROM conversation_messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(conversationId) as ConversationMessageRow | null;
 }
 
 export function getConversationMessages(

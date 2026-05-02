@@ -1,10 +1,10 @@
-# NanoClaw 桌面端安装包计划
+# OKClaw 桌面端安装包计划
 
 ## 项目背景
 
 ### 原始安装流程
 ```
-启动 nanoclaw 自带的 claudecode 
+启动 okclaw 自带的 claudecode 
     ↓
 cc 安装 LLM
     ↓
@@ -20,7 +20,7 @@ cc 打包进 docker
 ```
 
 ### 目标
-将 NanoClaw 转换为一个**桌面端安装包**，包含内置的 **IM 聊天窗口**，简化安装流程，让用户无需 Claude Code CLI 即可使用。
+将 OKClaw 转换为一个**桌面端安装包**，包含内置的 **IM 聊天窗口**，简化安装流程，让用户无需 Claude Code CLI 即可使用。
 
 ---
 
@@ -56,7 +56,7 @@ cc 打包进 docker
 │  ┌─────────────────────────────────────────────────────────────────┐ │
 │  │                    主进程（后端服务）                             │ │
 │  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │ │
-│  │  │  NanoClaw    │ │  Desktop     │ │  容器管理                │ │ │
+│  │  │  OKClaw    │ │  Desktop     │ │  容器管理                │ │ │
 │  │  │  核心引擎     │ │  Channel     │ │  - Docker/Apple Container│ │ │
 │  │  │  (src/)      │ │  (内置 IM)   │ │  - 镜像构建              │ │ │
 │  │  └──────────────┘ └──────────────┘ └──────────────────────────┘ │ │
@@ -123,7 +123,7 @@ export class DesktopChannel implements Channel {
 ## 目录结构
 
 ```
-nanoclaw/
+okclaw/
 ├── electron/                    # Electron 桌面应用
 │   ├── main.ts                  # 主进程入口
 │   ├── preload.ts               # 预加载脚本
@@ -178,7 +178,7 @@ nanoclaw/
    - 实现 IPC 通信层
 
 3. **集成现有后端**
-   - 在主进程中启动 NanoClaw 核心引擎
+   - 在主进程中启动 OKClaw 核心引擎
    - 确保容器功能正常工作
 
 ### 阶段二：内置 IM Channel

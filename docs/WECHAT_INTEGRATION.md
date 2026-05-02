@@ -1,4 +1,4 @@
-# 微信接入 NanoClaw 渠道对接文档
+# 微信接入 OKClaw 渠道对接文档
 
 ## 一、概述
 
@@ -305,7 +305,7 @@ registerChannel('wechat', (opts) => {
 });
 ```
 
-### 4.5 Wechaty 与 NanoClaw 的集成挑战
+### 4.5 Wechaty 与 OKClaw 的集成挑战
 
 | 挑战 | 说明 | 解决方案 |
 |------|------|----------|
@@ -316,7 +316,7 @@ registerChannel('wechat', (opts) => {
 
 ---
 
-## 五、NanoClaw 企业微信渠道实现要点
+## 五、OKClaw 企业微信渠道实现要点
 
 ### 5.1 JID 格式设计
 
@@ -469,7 +469,7 @@ async handleCallback(req: Request): Promise<void> {
 
 ### 6.2 本地运行的挑战
 
-NanoClaw 设计为本地运行的个人助手，主要挑战是：
+OKClaw 设计为本地运行的个人助手，主要挑战是：
 
 | 方案 | 挑战 | 解决思路 |
 |------|------|----------|

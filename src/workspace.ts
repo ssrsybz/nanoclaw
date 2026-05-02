@@ -159,12 +159,13 @@ export function removeWorkspace(db: Database.Database, id: string): void {
 }
 
 /**
- * List all workspaces, ordered by last_used_at DESC (NULLS LAST), then created_at DESC.
+ * List all workspaces, ordered by last_used_at DESC (NULLS LAST), then created_at DESC, then id DESC.
+ * The id tiebreaker ensures stable ordering even when timestamps are identical.
  */
 export function listWorkspaces(db: Database.Database): Workspace[] {
   const rows = db
     .prepare(
-      `SELECT * FROM workspaces ORDER BY last_used_at DESC, created_at DESC`,
+      `SELECT * FROM workspaces ORDER BY last_used_at DESC, created_at DESC, id DESC`,
     )
     .all() as Array<{
     id: string;
@@ -188,7 +189,10 @@ export function listWorkspaces(db: Database.Database): Workspace[] {
     if (a.lastUsedAt && !b.lastUsedAt) return -1;
     if (!a.lastUsedAt && b.lastUsedAt) return 1;
     // Both null — fall through to createdAt
-    return b.createdAt.localeCompare(a.createdAt);
+    const createdCmp = b.createdAt.localeCompare(a.createdAt);
+    if (createdCmp !== 0) return createdCmp;
+    // Final tiebreaker: id DESC for stable ordering
+    return b.id.localeCompare(a.id);
   });
 
   return workspaces;
@@ -397,7 +401,8 @@ export function writeSkillFile(
 
 /**
  * Open a native folder picker dialog.
- * Uses osascript on macOS, zenity on Linux, returns null on unsupported platforms.
+ * Uses osascript on macOS, zenity on Linux, PowerShell on Windows.
+ * Returns null on unsupported platforms or if user cancels.
  */
 export async function openFolderPicker(): Promise<string | null> {
   const platform = os.platform();
@@ -406,7 +411,7 @@ export async function openFolderPicker(): Promise<string | null> {
     const { execFile } = await import('child_process');
     return new Promise((resolve) => {
       const script = `
-        set chosenFolder to choose folder with prompt "Select workspace folder"
+        set chosenFolder to choose folder with prompt "选择工作文件夹"
         return POSIX path of chosenFolder
       `.trim();
       execFile('osascript', ['-e', script], (err, stdout) => {
@@ -425,7 +430,34 @@ export async function openFolderPicker(): Promise<string | null> {
     return new Promise((resolve) => {
       execFile(
         'zenity',
-        ['--file-selection', '--directory', '--title=Select workspace folder'],
+        ['--file-selection', '--directory', '--title=选择工作文件夹'],
+        (err, stdout) => {
+          if (err) {
+            resolve(null);
+            return;
+          }
+          const result = stdout.trim();
+          resolve(result || null);
+        },
+      );
+    });
+  }
+
+  if (platform === 'win32') {
+    const { exec } = await import('child_process');
+    return new Promise((resolve) => {
+      // Use PowerShell with FolderBrowserDialog on Windows
+      const script = `
+        Add-Type -AssemblyName System.Windows.Forms
+        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dialog.Description = "选择工作文件夹"
+        $dialog.ShowNewFolderButton = $true
+        if ($dialog.ShowDialog() -eq 'OK') {
+          Write-Output $dialog.SelectedPath
+        }
+      `.trim();
+      exec(
+        `powershell -NoProfile -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
         (err, stdout) => {
           if (err) {
             resolve(null);

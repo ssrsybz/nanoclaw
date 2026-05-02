@@ -1,5 +1,5 @@
 /**
- * MCP Stdio Server Entry Point for NanoClaw
+ * MCP Stdio Server Entry Point for OKClaw
  * This is launched as a subprocess by the agent runner
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -11,10 +11,10 @@ import { CronExpressionParser } from 'cron-parser';
 import { fileURLToPath } from 'url';
 
 // Context from environment variables (set by the agent runner)
-const chatJid = process.env.NANOCLAW_CHAT_JID!;
-const groupFolder = process.env.NANOCLAW_GROUP_FOLDER!;
-const isMain = process.env.NANOCLAW_IS_MAIN === '1';
-const dataDir = process.env.NANOCLAW_DATA_DIR!;
+const chatJid = process.env.OKCLAW_CHAT_JID!;
+const groupFolder = process.env.OKCLAW_GROUP_FOLDER!;
+const isMain = process.env.OKCLAW_IS_MAIN === '1';
+const dataDir = process.env.OKCLAW_DATA_DIR!;
 
 const IPC_DIR = path.join(dataDir, 'ipc', groupFolder);
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
@@ -35,7 +35,7 @@ function writeIpcFile(dir: string, data: object): string {
 }
 
 const server = new McpServer({
-  name: 'nanoclaw',
+  name: 'okclaw',
   version: '1.0.0',
 });
 

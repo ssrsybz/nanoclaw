@@ -1,5 +1,5 @@
 /**
- * Agent Runner for NanoClaw
+ * Agent Runner for OKClaw
  * Directly invokes Claude Agent SDK without container isolation
  * For single-user trusted environments only
  */
@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 
 import {
   ASSISTANT_NAME,
+  CLAUDE_ISOLATED_CONFIG_DIR,
   DATA_DIR,
   GROUPS_DIR,
   TIMEZONE,
@@ -19,29 +20,83 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 import { pushStatus } from './star-office-reporter.js';
+import { getToolMeta, getToolResultMeta } from './tool-meta.js';
+import {
+  waitForQuestionResponse,
+  cancelPendingQuestion,
+} from './question-responder.js';
+import type { Question } from './types.js';
 
 /**
  * Find Claude Code executable by checking common installation paths.
  * Returns the path if found, or 'claude' to rely on PATH.
  */
 function findClaudeCodeExecutable(): string {
-  // If user explicitly set a path, use it
+  // If user explicitly set a path in environment, use it
   if (process.env.CLAUDE_CODE_PATH) {
     return process.env.CLAUDE_CODE_PATH;
   }
 
-  // Common installation paths to check
+  // Try to read from project .env file
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('CLAUDE_CODE_PATH=')) {
+          let value = trimmed.slice('CLAUDE_CODE_PATH='.length).trim();
+          // Remove quotes
+          if (
+            value.length >= 2 &&
+            ((value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'")))
+          ) {
+            value = value.slice(1, -1);
+          }
+          if (value && fs.existsSync(value)) {
+            logger.debug({ path: value }, 'Found CLAUDE_CODE_PATH in .env');
+            return value;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, 'Failed to read CLAUDE_CODE_PATH from .env');
+  }
+
+  // Common installation paths to check (including nvm paths)
+  const homeDir = process.env.HOME || os.homedir();
   const commonPaths = [
     '/opt/homebrew/bin/claude',
     '/usr/local/bin/claude',
     '/usr/bin/claude',
-    process.env.HOME + '/.local/bin/claude',
+    path.join(homeDir, '.local/bin/claude'),
   ];
 
-  for (const path of commonPaths) {
-    if (fs.existsSync(path)) {
-      logger.debug({ path }, 'Found Claude Code executable');
-      return path;
+  // Add nvm paths if nvm is installed
+  const nvmDir = path.join(homeDir, '.nvm');
+  if (fs.existsSync(nvmDir)) {
+    try {
+      const versionsDir = path.join(nvmDir, 'versions', 'node');
+      if (fs.existsSync(versionsDir)) {
+        const versions = fs.readdirSync(versionsDir);
+        for (const version of versions) {
+          const claudePath = path.join(versionsDir, version, 'bin', 'claude');
+          if (fs.existsSync(claudePath)) {
+            commonPaths.push(claudePath);
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug({ err }, 'Failed to scan nvm directories');
+    }
+  }
+
+  for (const p of commonPaths) {
+    if (fs.existsSync(p)) {
+      logger.debug({ path: p }, 'Found Claude Code executable');
+      return p;
     }
   }
 
@@ -51,44 +106,106 @@ function findClaudeCodeExecutable(): string {
 }
 
 /**
- * Read ANTHROPIC_* environment variables from ~/.claude/settings.json.
- * This ensures the API credentials are available even when the user's shell
- * doesn't have them injected (e.g., outside VSCode).
- * Returns both env vars and model info for logging.
+ * Load LLM configuration with project-level override support.
+ * Priority: project .env (highest) > global settings.json (default)
+ *
+ * This allows:
+ * - Global qianfan config for other projects
+ * - Project-specific LLM (GLM, Kimi, etc.) for okclaw testing
+ * - User-configured LLM when deployed as product
  */
-function loadClaudeEnv(): { env: Record<string, string>; model: string; baseUrl: string } {
+function loadClaudeEnv(): { env: Record<string, string>; model: string; baseUrl: string; source: string } {
+  // Step 1: Load global defaults from ~/.claude/settings.json
+  let result: Record<string, string> = {};
+  let model = 'unknown';
+  let baseUrl = 'unknown';
+  let source = 'global';
+
   try {
     const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-    if (!fs.existsSync(settingsPath)) return { env: {}, model: 'unknown', baseUrl: 'unknown' };
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    const env = settings.env || {};
-    // Only return ANTHROPIC_* related keys
-    const anthropicKeys = Object.keys(env).filter(
-      (k) => k.startsWith('ANTHROPIC_') || k === 'API_TIMEOUT_MS',
-    );
-    const result: Record<string, string> = {};
-    for (const k of anthropicKeys) {
-      result[k] = String(env[k]);
-    }
-    if (Object.keys(result).length > 0) {
-      logger.debug(
-        { keys: Object.keys(result) },
-        'Loaded ANTHROPIC_* env from settings.json',
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      const env = settings.env || {};
+      const anthropicKeys = Object.keys(env).filter(
+        (k) => k.startsWith('ANTHROPIC_') || k === 'API_TIMEOUT_MS',
       );
+      for (const k of anthropicKeys) {
+        result[k] = String(env[k]);
+      }
+      model = env.ANTHROPIC_MODEL || 'unknown';
+      baseUrl = env.ANTHROPIC_BASE_URL || 'unknown';
+      if (Object.keys(result).length > 0) {
+        logger.debug(
+          { keys: Object.keys(result), model, baseUrl },
+          'Loaded LLM config from global settings.json',
+        );
+      }
     }
-    return {
-      env: result,
-      model: env.ANTHROPIC_MODEL || 'unknown',
-      baseUrl: env.ANTHROPIC_BASE_URL || 'unknown',
-    };
-  } catch {
-    return { env: {}, model: 'unknown', baseUrl: 'unknown' };
+  } catch (err) {
+    logger.debug({ err }, 'Failed to load global settings.json');
   }
+
+  // Step 2: Load project .env overrides (higher priority)
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      const projectEnv: Record<string, string> = {};
+
+      for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        let value = trimmed.slice(eqIdx + 1).trim();
+        // Remove quotes
+        if (
+          value.length >= 2 &&
+          ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'")))
+        ) {
+          value = value.slice(1, -1);
+        }
+        if (value) projectEnv[key] = value;
+      }
+
+      // Apply LLM-related overrides
+      let hasOverride = false;
+      if (projectEnv.ANTHROPIC_API_KEY) {
+        result.ANTHROPIC_API_KEY = projectEnv.ANTHROPIC_API_KEY;
+        result.ANTHROPIC_AUTH_TOKEN = projectEnv.ANTHROPIC_API_KEY; // SDK uses both
+        hasOverride = true;
+      }
+      if (projectEnv.ANTHROPIC_BASE_URL) {
+        result.ANTHROPIC_BASE_URL = projectEnv.ANTHROPIC_BASE_URL;
+        baseUrl = projectEnv.ANTHROPIC_BASE_URL;
+        hasOverride = true;
+      }
+      if (projectEnv.MODEL) {
+        result.ANTHROPIC_MODEL = projectEnv.MODEL;
+        model = projectEnv.MODEL;
+        hasOverride = true;
+      }
+
+      if (hasOverride) {
+        source = 'project';
+        logger.info(
+          { model, baseUrl, keys: Object.keys(result).filter(k => result[k]) },
+          '🔄 Using project .env LLM config (overrides global)',
+        );
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, 'Failed to load project .env');
+  }
+
+  return { env: result, model, baseUrl, source };
 }
 
 // Sentinel markers for output parsing (consistent with container version)
-const OUTPUT_START_MARKER = '---NANOCLAW_OUTPUT_START---';
-const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
+const OUTPUT_START_MARKER = '---OKCLAW_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---OKCLAW_OUTPUT_END---';
 
 export interface AgentInput {
   prompt: string;
@@ -102,6 +219,7 @@ export interface AgentInput {
   workspacePath?: string; // If set, overrides group folder as cwd
   enabledSkills?: string[]; // Skills to inject into systemPrompt
   workspaceId?: string; // If set, namespaces session directory per workspace
+  conversationId?: string; // For routing AskUserQuestion responses
 }
 
 export interface AgentOutput {
@@ -119,13 +237,19 @@ export interface AgentOutput {
     toolResults: number;
   };
   // Streaming fields for real-time UI updates
-  streamType?: 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'result';
+  streamType?: 'assistant' | 'thinking' | 'tool_use' | 'tool_result' | 'result' | 'ask_user_question';
   streamData?: {
     text?: string;
     thinking?: string;
+    thinkingStatus?: string;
     toolName?: string;
     toolInput?: string;
     toolOutput?: string;
+    toolMeta?: import("./types.js").ToolMeta;
+    // For ask_user_question
+    questions?: import("./types.js").Question[];
+    toolUseId?: string;
+    conversationId?: string;
   };
 }
 
@@ -622,6 +746,7 @@ export async function runAgentDirect(
       'ToolSearch',
       'Skill',
       'NotebookEdit',
+      'AskUserQuestion', // Built-in tool for asking user questions with dialog
     ];
 
     // MCP server configuration
@@ -629,30 +754,128 @@ export async function runAgentDirect(
     const mcpServerPath = path.join(distDir, 'mcp-stdio.js');
 
     // Build MCP config: only enable when the server binary exists
+    // Remove CLAUDECODE to allow nested Claude Code execution
+    // Set CLAUDE_CONFIG_DIR for isolation from host Claude Code instance
+    const { CLAUDECODE: _, ...envWithoutClaudeCode } = process.env;
+
+    // Ensure isolated config directory exists
+    fs.mkdirSync(CLAUDE_ISOLATED_CONFIG_DIR, { recursive: true });
+    logger.debug(
+      { configDir: CLAUDE_ISOLATED_CONFIG_DIR },
+      'Using isolated Claude config directory',
+    );
+
+    // Environment with isolation settings
+    const isolatedEnv = {
+      ...envWithoutClaudeCode,
+      CLAUDE_CONFIG_DIR: CLAUDE_ISOLATED_CONFIG_DIR,
+    };
+
     let mcpServersConfig: Record<string, unknown> | undefined;
     if (fs.existsSync(mcpServerPath)) {
       mcpServersConfig = {
-        nanoclaw: {
+        okclaw: {
           command: process.execPath,
           args: [mcpServerPath],
-          env: { ...process.env },
+          env: isolatedEnv,
         },
       };
       // Add MCP tools to allowed list only when MCP is active
       allowedTools.push(
-        'mcp__nanoclaw__send_message',
-        'mcp__nanoclaw__schedule_task',
-        'mcp__nanoclaw__list_tasks',
-        'mcp__nanoclaw__pause_task',
-        'mcp__nanoclaw__resume_task',
-        'mcp__nanoclaw__cancel_task',
-        'mcp__nanoclaw__update_task',
-        'mcp__nanoclaw__register_group',
+        'mcp__okclaw__send_message',
+        'mcp__okclaw__schedule_task',
+        'mcp__okclaw__list_tasks',
+        'mcp__okclaw__pause_task',
+        'mcp__okclaw__resume_task',
+        'mcp__okclaw__cancel_task',
+        'mcp__okclaw__update_task',
+        'mcp__okclaw__register_group',
       );
     }
 
     // Run the query
     const { env: claudeEnv, model, baseUrl } = loadClaudeEnv();
+
+    // canUseTool callback for handling AskUserQuestion tool
+    // This intercepts the tool before execution and gets user answers
+    const canUseTool = async (
+      toolName: string,
+      toolInput: Record<string, unknown>,
+      options: { toolUseID: string; signal: AbortSignal },
+    ): Promise<
+      | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+      | { behavior: 'deny'; message: string; interrupt?: boolean }
+    > => {
+      // Handle AskUserQuestion tool - show dialog and wait for user response
+      if (toolName === 'AskUserQuestion') {
+        const questions = toolInput.questions as Question[] | undefined;
+        if (!questions || !Array.isArray(questions)) {
+          return { behavior: 'deny', message: 'Invalid questions format' };
+        }
+
+        const conversationId = input.conversationId;
+        if (!conversationId) {
+          logger.warn('AskUserQuestion: no conversationId available');
+          return { behavior: 'deny', message: 'No conversation ID available' };
+        }
+
+        logger.info(
+          { conversationId, toolUseId: options.toolUseID, questionCount: questions.length },
+          'AskUserQuestion: sending questions to frontend',
+        );
+
+        // Send questions to frontend via onOutput
+        if (onOutput) {
+          await onOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            streamType: 'ask_user_question',
+            streamData: {
+              questions,
+              toolUseId: options.toolUseID,
+              conversationId,
+            },
+          });
+        }
+
+        try {
+          // Wait for user response (with 5 minute timeout)
+          const { answers, annotations } = await waitForQuestionResponse(
+            options.toolUseID,
+            conversationId,
+            questions,
+            300000, // 5 minutes
+          );
+
+          logger.info(
+            { conversationId, toolUseId: options.toolUseID, answerCount: Object.keys(answers).length },
+            'AskUserQuestion: received answers from frontend',
+          );
+
+          // Return the updated input with answers
+          return {
+            behavior: 'allow',
+            updatedInput: {
+              ...toolInput,
+              answers,
+              annotations,
+            },
+          };
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          logger.warn(
+            { conversationId, toolUseId: options.toolUseID, error: errorMsg },
+            'AskUserQuestion: failed to get answers',
+          );
+          return { behavior: 'deny', message: `Failed to get answers: ${errorMsg}` };
+        }
+      }
+
+      // For all other tools, allow with original input
+      return { behavior: 'allow', updatedInput: toolInput };
+    };
+
     for await (const message of query({
       prompt: prompt,
       options: {
@@ -666,7 +889,7 @@ export async function runAgentDirect(
           // Load from settings.json to ensure API credentials are available
           // even when the shell doesn't have ANTHROPIC_* vars injected
           ...claudeEnv,
-          ...process.env,
+          ...isolatedEnv,
           // Keep debug on for diagnostics (remove in production)
           DEBUG_CLAUDE_AGENT_SDK: '1',
         },
@@ -683,6 +906,7 @@ export async function runAgentDirect(
               import('@anthropic-ai/claude-agent-sdk').McpServerConfig
             >
           | undefined,
+        canUseTool,
       },
     })) {
       messageCount++;
@@ -730,7 +954,10 @@ export async function runAgentDirect(
                 result: null,
                 newSessionId,
                 streamType: 'thinking',
-                streamData: { thinking: part.thinking },
+                streamData: {
+                  thinking: part.thinking,
+                  thinkingStatus: 'running',
+                },
               });
             } else if (part.type === 'tool_use' && part.name) {
               apiCallCounts.assistantToolUse++;
@@ -740,6 +967,7 @@ export async function runAgentDirect(
                 newSessionId,
                 streamType: 'tool_use',
                 streamData: {
+                  toolMeta: getToolMeta(part.name, part.input),
                   toolName: part.name,
                   toolInput:
                     typeof part.input === 'string'
@@ -785,7 +1013,10 @@ export async function runAgentDirect(
                   result: null,
                   newSessionId,
                   streamType: 'tool_result',
-                  streamData: { toolOutput: text },
+                  streamData: {
+                    toolOutput: text,
+                    toolMeta: { icon: '📋', displayText: '执行结果', status: 'complete' },
+                  },
                 });
               } else {
                 logger.debug({ toolUseId: part.tool_use_id }, 'Tool result has no text content, skipping');

@@ -1,14 +1,14 @@
 /**
  * Star Office UI 状态报告模块
- * 将 NanoClaw 的工作状态实时推送到 Star Office UI
+ * 将 OKClaw 的工作状态实时推送到 Star Office UI
  */
 
 import { logger } from './logger.js';
 
 const STAR_OFFICE_URL = process.env.STAR_OFFICE_URL || 'http://localhost:19000';
-const AGENT_NAME = process.env.STAR_OFFICE_AGENT_NAME || 'NanoClaw';
+const AGENT_NAME = process.env.STAR_OFFICE_AGENT_NAME || 'OKClaw';
 
-// 状态映射：NanoClaw 状态 -> Star Office 状态
+// 状态映射：OKClaw 状态 -> Star Office 状态
 const STATUS_MAP: Record<string, string> = {
   idle: 'idle',
   writing: 'writing',

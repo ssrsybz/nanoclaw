@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# NanoClaw 服务器同步脚本
+# OKClaw 服务器同步脚本
 # 用于将本地代码同步到服务器并自动构建
 
 # ============ 配置 ============
@@ -8,7 +8,7 @@ SERVER_USER="admin1"
 SERVER_HOST="192.168.203.75"
 SERVER_PATH="/home/admin1/OKclaw"
 SERVER_PASS="1"
-LOCAL_PATH="/Users/h3glove/projeck/nanoclaw"
+LOCAL_PATH="/Users/h3glove/projeck/okclaw"
 
 # ============ 颜色输出 ============
 GREEN='\033[0;32m'
@@ -68,7 +68,7 @@ sshpass -p "$SERVER_PASS" rsync -avz --delete \
     --exclude='dist' \
     --exclude='*.log' \
     --exclude='.DS_Store' \
-    --exclude='nanoclaw.bundle' \
+    --exclude='okclaw.bundle' \
     --exclude='sync-to-server.sh' \
     --exclude='send-test.mjs' \
     --exclude='data/' \
@@ -111,9 +111,9 @@ fi
 
 echo ">>> 重启服务..."
 if command -v pm2 &> /dev/null; then
-    pm2 restart nanoclaw 2>/dev/null || echo "pm2 中没有 nanoclaw 进程，跳过"
+    pm2 restart okclaw 2>/dev/null || echo "pm2 中没有 okclaw 进程，跳过"
 elif command -v systemctl &> /dev/null; then
-    systemctl --user restart nanoclaw 2>/dev/null || echo "systemctl 中没有 nanoclaw 服务，跳过"
+    systemctl --user restart okclaw 2>/dev/null || echo "systemctl 中没有 okclaw 服务，跳过"
 else
     echo "未检测到 pm2 或 systemctl，请手动重启服务"
 fi

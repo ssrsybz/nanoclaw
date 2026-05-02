@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to NanoClaw will be documented in this file.
+All notable changes to OKClaw will be documented in this file.
 
-For detailed release notes, see the [full changelog on the documentation site](https://docs.nanoclaw.dev/changelog).
+For detailed release notes, see the [full changelog on the documentation site](https://docs.okclaw.dev/changelog).
 
 ## [1.2.35] - 2026-03-26
 
@@ -122,7 +122,7 @@ For detailed release notes, see the [full changelog on the documentation site](h
 ## [1.1.4] - 2026-03-01
 
 - Added third-party model support
-- Added `/update-nanoclaw` skill for syncing with upstream
+- Added `/update-okclaw` skill for syncing with upstream
 
 ## [1.1.3] - 2026-02-25
 

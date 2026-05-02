@@ -4,7 +4,7 @@ Date: 2026-04-14
 
 ## Overview
 
-Add file attachment support to the NanoClaw Web chat interface. Users can upload Word (.docx), Excel (.xlsx), and PDF (.pdf) files via an attachment button in the message composer. The backend parses file content into text, injects it into the agent prompt for immediate analysis, and saves the original file to the workspace for subsequent access.
+Add file attachment support to the OKClaw Web chat interface. Users can upload Word (.docx), Excel (.xlsx), and PDF (.pdf) files via an attachment button in the message composer. The backend parses file content into text, injects it into the agent prompt for immediate analysis, and saves the original file to the workspace for subsequent access.
 
 ## Requirements
 
@@ -138,9 +138,9 @@ When `message.attachment` exists, render a small attachment tag above the text:
 
 ### Event Extension
 
-`nanoclaw-send` custom event detail gains optional `attachment`:
+`okclaw-send` custom event detail gains optional `attachment`:
 ```typescript
-window.dispatchEvent(new CustomEvent('nanoclaw-send', {
+window.dispatchEvent(new CustomEvent('okclaw-send', {
   detail: { content: text, workspaceId, attachment }
 }));
 ```

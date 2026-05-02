@@ -20,10 +20,14 @@ export const POLL_INTERVAL = 2000;
 export const SCHEDULER_POLL_INTERVAL = 60000;
 
 // Absolute paths for data storage
-const PROJECT_ROOT = process.cwd();
+export const PROJECT_ROOT = process.cwd();
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+
+// Isolation: Claude Code config directory for OKClaw
+// This prevents conflicts with the host Claude Code instance
+export const CLAUDE_ISOLATED_CONFIG_DIR = path.join(DATA_DIR, 'claude-config');
 
 // Agent configuration (no container needed)
 export const MAX_CONCURRENT_AGENTS = Math.max(

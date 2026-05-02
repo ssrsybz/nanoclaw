@@ -6,8 +6,10 @@ const EMPTY_MESSAGES: never[] = [];
 
 export function useChatRuntime() {
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
+  const activeConversationId = useStore((s) => s.activeConversationId);
   const appendMessage = useStore((s) => s.appendMessage);
-  const isRunning = useStore((s) => s.typing);
+  const isTyping = useStore((s) => s.isTyping);
+  const isRunning = activeConversationId ? isTyping(activeConversationId) : false;
 
   const rawMessages = useStore((s) =>
     s.activeWorkspaceId ? s.messages[s.activeWorkspaceId] : undefined
@@ -43,11 +45,11 @@ export function useChatRuntime() {
 
         appendMessage(wsId, { role: 'user', content });
         window.dispatchEvent(
-          new CustomEvent('nanoclaw-send', { detail: { content, workspaceId: wsId } })
+          new CustomEvent('okclaw-send', { detail: { content, workspaceId: wsId } })
         );
       },
       onCancel: async () => {
-        window.dispatchEvent(new CustomEvent('nanoclaw-cancel'));
+        window.dispatchEvent(new CustomEvent('okclaw-cancel'));
       },
     }),
     [messages, isRunning, appendMessage]

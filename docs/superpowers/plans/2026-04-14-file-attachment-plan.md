@@ -793,7 +793,7 @@ function Composer() {
     if ((!input.trim() && !attachment) || typing || isComposing || uploading) return;
     const content = input.trim();
     setInput('');
-    window.dispatchEvent(new CustomEvent('nanoclaw-send', {
+    window.dispatchEvent(new CustomEvent('okclaw-send', {
       detail: { content, attachment },
     }));
     setAttachment(null);
@@ -851,7 +851,7 @@ function Composer() {
         />
         {typing ? (
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent('nanoclaw-cancel'))}
+            onClick={() => window.dispatchEvent(new CustomEvent('okclaw-cancel'))}
             className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm transition-colors flex-shrink-0"
           >
             Stop

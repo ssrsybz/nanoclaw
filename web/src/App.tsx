@@ -1,8 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useStore } from './store';
+import { useStore, WS_MSG_TYPES, sendWsMessage } from './store';
 import WorkspaceSidebar from './components/WorkspaceSidebar';
 import AssistantChat from './components/AssistantChat';
 import SkillsPanel from './components/SkillsPanel';
+import QuestionDialog from './components/QuestionDialog';
 
 export default function App() {
   const {
@@ -14,6 +15,10 @@ export default function App() {
     appendPart,
     startAssistantTurn,
     finishAssistantTurn,
+    completeThinkingParts,
+    setStreamingThinking,
+    setPendingQuestion,
+    fetchSystemSkills,
     activeWorkspaceId,
     activeConversationId,
   } = useStore();
@@ -37,7 +42,20 @@ export default function App() {
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    // Expose WebSocket for QuestionDialog to submit answers
+    (window as any).okclawWebSocket = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      const { activeWorkspaceId, activeConversationId } = useStore.getState();
+      if (activeWorkspaceId && activeConversationId) {
+        sendWsMessage({
+          type: WS_MSG_TYPES.SWITCH_CONVERSATION,
+          workspaceId: activeWorkspaceId,
+          conversationId: activeConversationId,
+        });
+      }
+    };
     ws.onclose = () => {
       setConnected(false);
       setTimeout(() => {
@@ -50,22 +68,28 @@ export default function App() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        const conversationId = data.conversationId || activeConversationIdRef.current;
+
+        // For connection status, handle globally
+        if (data.type === 'connected') {
+          setConnected(true);
+          return;
+        }
+
+        // All other messages must have conversationId
+        const conversationId = data.conversationId;
         if (!conversationId) return;
 
         switch (data.type) {
-          case 'connected':
-            setConnected(true);
-            break;
-
           case 'typing':
-            setTyping(true);
+            setTyping(conversationId, true);
             break;
 
           case 'stream_start':
             // Agent starts working — create empty assistant turn container
-            setTyping(true);
+            setTyping(conversationId, true);
             startAssistantTurn(conversationId);
+            // Clear stale streaming thinking from previous turn
+            setStreamingThinking(() => null);
             break;
 
           case 'assistant': {
@@ -87,40 +111,105 @@ export default function App() {
           }
 
           case 'thinking':
-            appendPart(conversationId, { type: 'thinking', text: data.content });
+            // Update streaming thinking state (like Claude Code's approach).
+            // Don't append to parts during streaming — a single completed part
+            // will be appended when the thinking block finishes.
+            setStreamingThinking(() => ({
+              thinking: data.content,
+              isStreaming: true,
+            }));
             break;
 
           case 'tool_use':
-            appendPart(conversationId, { type: 'tool_use', toolName: data.toolName, toolInput: data.toolInput });
+            appendPart(conversationId, {
+              type: 'tool_use',
+              toolName: data.toolName,
+              toolInput: data.toolInput,
+              toolMeta: data.toolMeta,
+            });
             break;
 
           case 'tool_result':
             if (data.content) {
-              appendPart(conversationId, { type: 'tool_result', content: data.content });
+              appendPart(conversationId, {
+                type: 'tool_result',
+                content: data.content,
+                toolMeta: data.toolMeta,
+              });
+            }
+            break;
+
+          case 'ask_user_question':
+            // Agent is asking the user questions - show dialog
+            if (data.questions && data.toolUseId) {
+              setPendingQuestion({
+                toolUseId: data.toolUseId,
+                conversationId,
+                questions: data.questions,
+                timestamp: Date.now(),
+              });
             }
             break;
 
           case 'stream_end': {
-            // Debug: log received data
-            console.log('[stream_end] Received:', { model: data.model, apiCalls: data.apiCalls });
+            // Snapshot final streaming thinking and append as a single complete part
+            const finalThinking = useStore.getState().streamingThinking;
+            if (finalThinking && finalThinking.thinking) {
+              appendPart(conversationId, {
+                type: 'thinking',
+                text: finalThinking.thinking,
+                status: 'complete',
+              });
+            }
+            // Mark streaming thinking as complete (will auto-hide after 30s in UI)
+            setStreamingThinking((current) =>
+              current ? { ...current, isStreaming: false, streamingEndedAt: Date.now() } : null
+            );
+
+            completeThinkingParts(conversationId);
             // Persist the complete assistant turn to backend
             finishAssistantTurn(conversationId, data.model, data.apiCalls);
-            setTyping(false);
+            setTyping(conversationId, false);
             // Persist complete turn (including parts) to backend
+            // Find the workspaceId from the conversation (not from activeWorkspaceIdRef)
+            const { conversations } = useStore.getState();
+            let workspaceIdForPersist: string | null = null;
+            for (const [wsId, convList] of Object.entries(conversations)) {
+              if (convList.some(c => c.id === conversationId)) {
+                workspaceIdForPersist = wsId;
+                break;
+              }
+            }
             const currentMsgs = useStore.getState().messages[conversationId] || [];
             const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === 'assistant' && m._turnComplete);
-            if (lastAssistant && activeWorkspaceIdRef.current) {
-              fetch(`/api/workspaces/${activeWorkspaceIdRef.current}/conversations/${conversationId}/messages`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  role: 'assistant',
-                  content: lastAssistant.content,
-                  parts: lastAssistant.parts,
-                  model: data.model,
-                  apiCalls: data.apiCalls,
-                }),
-              }).catch((err) => console.error('Failed to persist assistant turn:', err));
+
+            // Persist assistant message and then generate title
+            if (workspaceIdForPersist) {
+              const persistPromise = lastAssistant
+                ? fetch(`/api/workspaces/${workspaceIdForPersist}/conversations/${conversationId}/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      role: 'assistant',
+                      content: lastAssistant.content,
+                      parts: lastAssistant.parts,
+                      model: data.model,
+                      apiCalls: data.apiCalls,
+                    }),
+                  }).catch((err) => console.error('Failed to persist assistant turn:', err))
+                : Promise.resolve();
+
+              // Wait for persistence to complete
+              persistPromise.catch(err => console.error('Failed to persist:', err));
+            }
+            break;
+          }
+
+          case 'conversation_renamed': {
+            // Server generated a new title for the conversation
+            const { workspaceId: wsId, newName } = data;
+            if (wsId && newName) {
+              useStore.getState().renameConversation(wsId, conversationId, newName);
             }
             break;
           }
@@ -128,7 +217,7 @@ export default function App() {
           // Legacy fallback
           case 'message':
             if (data.content) {
-              setTyping(false);
+              setTyping(conversationId, false);
               appendMessage(conversationId, { role: 'assistant', content: data.content });
             }
             break;
@@ -141,7 +230,7 @@ export default function App() {
     ws.onerror = () => {
       setConnected(false);
     };
-  }, [setConnected, setTyping, appendMessage, appendPart, startAssistantTurn, finishAssistantTurn]);
+  }, [setConnected, setTyping, appendMessage, appendPart, startAssistantTurn, finishAssistantTurn, setStreamingThinking]);
 
   useEffect(() => {
     fetchWorkspaces().then(() => {
@@ -153,9 +242,10 @@ export default function App() {
         switchWorkspace(wsId);
       }
     });
+    fetchSystemSkills();
     connectWebSocket();
     return () => { wsRef.current?.close(); };
-  }, [fetchWorkspaces, switchWorkspace, connectWebSocket]);
+  }, [fetchWorkspaces, switchWorkspace, connectWebSocket, fetchSystemSkills]);
 
   // Forward send/cancel events from AssistantChat to WebSocket
   useEffect(() => {
@@ -169,8 +259,37 @@ export default function App() {
 
       if (!content && !attachment) return;
 
-      setTyping(true);
+      // Parse skill command
+      let skillData: { name: string; content: string } | undefined;
+      let processedContent = content || '';
+      const skillMatch = processedContent.match(/^\/([a-zA-Z0-9_-]+)\s*/);
+      if (skillMatch) {
+        const skillName = skillMatch[1];
+        const { systemSkills, skills } = useStore.getState();
+        const allSkills = [...systemSkills, ...skills];
+        const skill = allSkills.find(s => s.name === skillName || s.name === `/${skillName}`);
+
+        if (skill) {
+          try {
+            const isSystem = skill.isSystem || systemSkills.includes(skill);
+            const res = isSystem
+              ? await fetch(`/api/system-skills/${skillName}/content`)
+              : await fetch(`/api/workspaces/${workspaceId}/skills/${skillName}/content`);
+            const data = await res.json();
+            if (data.content) {
+              skillData = { name: skillName, content: data.content };
+              // Remove skill command prefix from content
+              processedContent = processedContent.replace(/^\/[a-zA-Z0-9_-]+\s*/, '');
+            }
+          } catch (err) {
+            console.error('Failed to fetch skill content:', err);
+          }
+        }
+      }
+
+      setTyping(conversationId, true);
       // Store user message immediately for instant display
+      // Display original content (with skill prefix if present) to user
       appendMessage(conversationId, { role: 'user', content: content || '', attachment });
 
       // Persist message to backend via API
@@ -190,26 +309,30 @@ export default function App() {
 
       ws.send(JSON.stringify({
         type: 'message',
-        content: content || `[附件: ${attachment?.filename}]`,
+        content: processedContent || `[附件: ${attachment?.filename}]`,
         workspaceId,
         conversationId,
         attachment,
+        skill: skillData,
       }));
     };
 
     const handleCancel = () => {
       const ws = wsRef.current;
+      const conversationId = activeConversationIdRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'stop' }));
       }
-      setTyping(false);
+      if (conversationId) {
+        setTyping(conversationId, false);
+      }
     };
 
-    window.addEventListener('nanoclaw-send', handleSend);
-    window.addEventListener('nanoclaw-cancel', handleCancel);
+    window.addEventListener('okclaw-send', handleSend);
+    window.addEventListener('okclaw-cancel', handleCancel);
     return () => {
-      window.removeEventListener('nanoclaw-send', handleSend);
-      window.removeEventListener('nanoclaw-cancel', handleCancel);
+      window.removeEventListener('okclaw-send', handleSend);
+      window.removeEventListener('okclaw-cancel', handleCancel);
     };
   }, [setTyping]);
 
@@ -218,6 +341,7 @@ export default function App() {
       <WorkspaceSidebar />
       <AssistantChat />
       <SkillsPanel />
+      <QuestionDialog />
     </div>
   );
 }

@@ -1,11 +1,11 @@
 ---
 name: configure-llm
-description: Configure LLM provider for NanoClaw. Use when setting up Anthropic Claude API or third-party LLM providers (火山引擎/Kimi, OpenRouter, etc.). Ensures config.ts and agent-runner.ts have correct LLM configuration code.
+description: Configure LLM provider for OKClaw. Use when setting up Anthropic Claude API or third-party LLM providers (火山引擎/Kimi, OpenRouter, etc.). Ensures config.ts and agent-runner.ts have correct LLM configuration code.
 ---
 
 # Configure LLM Provider
 
-This skill configures the LLM (Large Language Model) provider for NanoClaw. It works with:
+This skill configures the LLM (Large Language Model) provider for OKClaw. It works with:
 - **Anthropic Claude API** - Official Claude API
 - **Third-party LLMs** - 火山引擎/Kimi, OpenRouter, or any Anthropic-compatible API
 

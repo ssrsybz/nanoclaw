@@ -86,7 +86,7 @@ if (streamingSent) return;
 
 - [ ] **Step 4: 验证后端编译通过**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw && npx tsc --noEmit`
+Run: `cd /Users/h3glove/projeck/okclaw && npx tsc --noEmit`
 Expected: 无错误
 
 - [ ] **Step 5: Commit**
@@ -178,7 +178,7 @@ toolOutput?: string;
 
 - [ ] **Step 4: 验证后端编译通过**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw && npx tsc --noEmit`
+Run: `cd /Users/h3glove/projeck/okclaw && npx tsc --noEmit`
 Expected: 无错误
 
 - [ ] **Step 5: Commit**
@@ -234,7 +234,7 @@ case 'stream_end': {
 
 - [ ] **Step 3: 验证 TypeScript 编译**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw && npm run build`
+Run: `cd /Users/h3glove/projeck/okclaw && npm run build`
 Expected: 无错误
 
 - [ ] **Step 4: Commit**
@@ -337,7 +337,7 @@ set((state) => ({
 
 - [ ] **Step 5: 验证 TypeScript 编译**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw/web && npx tsc --noEmit`
+Run: `cd /Users/h3glove/projeck/okclaw/web && npx tsc --noEmit`
 Expected: 无错误
 
 - [ ] **Step 6: Commit**
@@ -508,7 +508,7 @@ case 'stream_end':
 
 - [ ] **Step 5: 验证 TypeScript 编译**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw/web && npx tsc --noEmit`
+Run: `cd /Users/h3glove/projeck/okclaw/web && npx tsc --noEmit`
 Expected: 无错误
 
 - [ ] **Step 6: Commit**
@@ -744,7 +744,7 @@ import { useStore, type ThinkingPart, type ToolUsePart, type ToolResultPart, typ
 
 - [ ] **Step 7: 验证 TypeScript 编译**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw/web && npx tsc --noEmit`
+Run: `cd /Users/h3glove/projeck/okclaw/web && npx tsc --noEmit`
 Expected: 无错误
 
 - [ ] **Step 8: Commit**
@@ -762,7 +762,7 @@ git commit -m "feat: render tool_use and tool_result as collapsible cards in cha
 
 - [ ] **Step 1: 启动开发环境**
 
-Run: `cd /Users/h3glove/projeck/nanoclaw && npm run dev:all`
+Run: `cd /Users/h3glove/projeck/okclaw && npm run dev:all`
 
 - [ ] **Step 2: 在浏览器中验证基本消息流**
 

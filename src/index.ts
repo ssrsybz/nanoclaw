@@ -27,6 +27,7 @@ import {
   getAllRegisteredGroups,
   getAllSessions,
   getAllTasks,
+  getConversation,
   getDb,
   getLastBotMessageTimestamp,
   getMessagesSince,
@@ -38,6 +39,7 @@ import {
   setSession,
   storeChatMetadata,
   storeMessage,
+  updateConversation,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -273,7 +275,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  const prompt = formatMessages(filteredMessages, TIMEZONE);
+  // Check for skill injection from messages
+  const skillMsg = filteredMessages.find((m) => m.skill);
+  let prompt = formatMessages(filteredMessages, TIMEZONE);
+  if (skillMsg?.skill) {
+    prompt = `[SKILL: ${skillMsg.skill.name}]\n${skillMsg.skill.content}\n[/SKILL]\n\n${prompt}`;
+    logger.info(
+      { skillName: skillMsg.skill.name, chatJid },
+      'Injected skill content into prompt',
+    );
+  }
 
   // Advance cursor so the piping path in startMessageLoop won't re-fetch
   // these messages. Save the old cursor so we can roll back on error.
@@ -337,6 +348,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             type: 'tool_use',
             toolName: result.streamData?.toolName,
             toolInput: result.streamData?.toolInput,
+            toolMeta: result.streamData?.toolMeta,
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
@@ -344,6 +356,16 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           await channel.sendStructured(chatJid, {
             type: 'tool_result',
             content: result.streamData.toolOutput,
+            toolMeta: result.streamData?.toolMeta,
+            workspaceId: workspaceId ?? null,
+            conversationId: conversationId ?? null,
+          });
+        } else if (result.streamType === 'ask_user_question' && result.streamData?.questions) {
+          // Forward AskUserQuestion to frontend for dialog display
+          await channel.sendStructured(chatJid, {
+            type: 'ask_user_question',
+            questions: result.streamData.questions,
+            toolUseId: result.streamData.toolUseId,
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
@@ -393,6 +415,71 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
   await channel.setTyping?.(chatJid, false);
 
+  // Generate title for new conversations (silent background call)
+  if (conversationId && workspaceId && agentResult.status === 'success') {
+    try {
+      const db = getDb();
+      const conversation = getConversation(db, conversationId);
+      if (conversation && conversation.name === '新对话') {
+        // Use the same session to generate a title
+        const sessionKey = `${group.folder}--conv-${conversationId}`;
+        const currentSessionId = sessions[sessionKey] || agentResult.newSessionId;
+
+        // Silently call agent to generate title (no onOutput = no UI update)
+        let generatedTitle = '';
+        const titleResult = await runAgentDirect(
+          group,
+          {
+            prompt: '请为我们的对话生成一个2-6个汉字的简短标题，只输出标题本身，不要任何标点符号、引号或其他内容。',
+            sessionId: currentSessionId,
+            groupFolder: group.folder,
+            chatJid,
+            isMain: group.isMain === true,
+            assistantName: ASSISTANT_NAME,
+            workspacePath,
+            enabledSkills,
+            workspaceId,
+          },
+          // Silent output handler - captures title but doesn't send to user
+          async (output) => {
+            if (output.streamType === 'assistant' && output.streamData?.text) {
+              generatedTitle += output.streamData.text;
+            }
+            if (output.newSessionId) {
+              sessions[sessionKey] = output.newSessionId;
+              setSession(sessionKey, output.newSessionId);
+            }
+          },
+        );
+
+        // Clean and validate title
+        const cleanTitle = generatedTitle
+          .replace(/^["'"]|["']$/g, '')
+          .replace(/[，。！？、：；""''【】（）\n\r]/g, '')
+          .replace(/[.,!?;:()[\]{}]/g, '')
+          .trim()
+          .slice(0, 20);
+
+        if (cleanTitle && cleanTitle !== '新对话' && titleResult.status === 'success') {
+          updateConversation(db, conversationId, cleanTitle);
+          logger.info({ convId: conversationId, title: cleanTitle }, 'Generated conversation title');
+
+          // Notify frontend to update the conversation name
+          if (channel.sendStructured) {
+            await channel.sendStructured(chatJid, {
+              type: 'conversation_renamed',
+              workspaceId: workspaceId,
+              conversationId: conversationId,
+              newName: cleanTitle,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, convId: conversationId }, 'Failed to generate title');
+    }
+  }
+
   if (agentResult.status === 'error' || hadError) {
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
@@ -425,7 +512,7 @@ async function runAgent(
   workspaceId?: string,
   conversationId?: string,
   onOutput?: (output: AgentOutput) => Promise<void>,
-): Promise<{ status: 'success' | 'error'; model?: string; apiCalls?: AgentOutput['apiCalls'] }> {
+): Promise<{ status: 'success' | 'error'; model?: string; apiCalls?: AgentOutput['apiCalls']; newSessionId?: string }> {
   const isMain = group.isMain === true;
   // Use conversation-aware session key so each conversation has isolated context
   const sessionKey = conversationId
@@ -498,6 +585,7 @@ async function runAgent(
         workspacePath,
         enabledSkills,
         workspaceId,
+        conversationId,
       },
       wrappedOnOutput,
     );
@@ -516,6 +604,7 @@ async function runAgent(
       status: 'success',
       model: output.model,
       apiCalls: output.apiCalls,
+      newSessionId: output.newSessionId,
     };
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');
@@ -532,7 +621,7 @@ async function startMessageLoop(): Promise<void> {
   }
   messageLoopRunning = true;
 
-  logger.info(`NanoClaw running (default trigger: ${DEFAULT_TRIGGER})`);
+  logger.info(`OKClaw running (default trigger: ${DEFAULT_TRIGGER})`);
 
   while (true) {
     try {
@@ -878,7 +967,7 @@ const isDirectRun =
 
 if (isDirectRun) {
   main().catch((err) => {
-    logger.error({ err }, 'Failed to start NanoClaw');
+    logger.error({ err }, 'Failed to start OKClaw');
     process.exit(1);
   });
 }

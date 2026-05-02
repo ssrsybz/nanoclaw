@@ -1,10 +1,10 @@
-# 飞书（Feishu）接入 NanoClaw 渠道对接文档
+# 飞书（Feishu）接入 OKClaw 渠道对接文档
 
 ## 一、概述
 
-本文档描述如何将飞书（Feishu）机器人接入 NanoClaw，实现与其他渠道（Discord、WhatsApp、Telegram 等）一致的自注册体验。
+本文档描述如何将飞书（Feishu）机器人接入 OKClaw，实现与其他渠道（Discord、WhatsApp、Telegram 等）一致的自注册体验。
 
-NanoClaw 的渠道系统采用**工厂注册模式**，每个渠道通过 `registerChannel()` 在模块加载时自注册。飞书渠道的实现完全遵循这一模式，核心代码位于 `src/channels/feishu.ts`。
+OKClaw 的渠道系统采用**工厂注册模式**，每个渠道通过 `registerChannel()` 在模块加载时自注册。飞书渠道的实现完全遵循这一模式，核心代码位于 `src/channels/feishu.ts`。
 
 ---
 
@@ -25,7 +25,7 @@ NanoClaw 的渠道系统采用**工厂注册模式**，每个渠道通过 `regis
 
 ### 2.2 核心能力
 
-飞书机器人具备以下与 NanoClaw 相关的核心能力：
+飞书机器人具备以下与 OKClaw 相关的核心能力：
 
 | 能力 | 说明 |
 |------|------|
@@ -42,15 +42,15 @@ NanoClaw 的渠道系统采用**工厂注册模式**，每个渠道通过 `regis
 
 ### 3.1 两种事件订阅方式
 
-飞书支持两种事件订阅方式，对 NanoClaw 本地运行场景有重要影响：
+飞书支持两种事件订阅方式，对 OKClaw 本地运行场景有重要影响：
 
 | 方式 | 说明 | 是否需要公网 IP/域名 | 适用场景 |
 |------|------|----------------------|----------|
 | **长连接模式（推荐）** | SDK 通过 WebSocket 与飞书服务器保持连接，事件通过该连接推送 | ❌ 不需要 | 本地开发测试、生产环境 |
 | **Webhook 模式** | 飞书将事件 POST 到指定的公网 URL | ✅ 需要 | 已部署到云服务器 |
 
-**NanoClaw 强烈推荐使用长连接模式**，因为：
-- NanoClaw 设计为本地运行的个人助手
+**OKClaw 强烈推荐使用长连接模式**，因为：
+- OKClaw 设计为本地运行的个人助手
 - 无需配置内网穿透（ngrok 等）
 - 开发周期从 1 周缩短到 5 分钟
 - 加密传输，无需额外处理加解密逻辑
@@ -74,7 +74,7 @@ NanoClaw 的渠道系统采用**工厂注册模式**，每个渠道通过 `regis
 
 1. 登录 [飞书开发者后台](https://open.feishu.cn)
 2. 点击 **创建企业自建应用**
-3. 填写应用名称（如 "NanoClaw Assistant"）、描述和图标
+3. 填写应用名称（如 "OKClaw Assistant"）、描述和图标
 4. 点击 **创建**
 
 ### 4.2 获取应用凭证
@@ -84,7 +84,7 @@ NanoClaw 的渠道系统采用**工厂注册模式**，每个渠道通过 `regis
    - `App ID`（格式：`cli_xxx`）
    - `App Secret`
 
-这两个值将作为 NanoClaw 的环境变量：
+这两个值将作为 OKClaw 的环境变量：
 ```bash
 FEISHU_APP_ID=cli_xxx
 FEISHU_APP_SECRET=xxx
@@ -128,7 +128,7 @@ FEISHU_APP_SECRET=xxx
 2. 选择订阅方式为 **使用长连接接收事件**
 3. 添加事件：**接收消息**（`im.message.receive_v1`）
 
-> **注意**：必须先启动本地 NanoClaw 服务（建立长连接），才能保存配置成功。
+> **注意**：必须先启动本地 OKClaw 服务（建立长连接），才能保存配置成功。
 
 ### 4.6 发布应用
 
@@ -138,11 +138,11 @@ FEISHU_APP_SECRET=xxx
 
 ---
 
-## 五、NanoClaw 飞书渠道实现要点
+## 五、OKClaw 飞书渠道实现要点
 
 ### 5.1 架构设计
 
-飞书渠道实现遵循 NanoClaw 的标准 Channel 接口：
+飞书渠道实现遵循 OKClaw 的标准 Channel 接口：
 
 ```
 src/channels/feishu.ts  →  registerChannel('feishu', factory)
@@ -260,7 +260,7 @@ if (message.mentions && message.mentions.length > 0) {
 
 ## 六、环境变量配置
 
-NanoClaw 飞书渠道使用以下环境变量：
+OKClaw 飞书渠道使用以下环境变量：
 
 ```bash
 # .env 文件
@@ -293,10 +293,10 @@ FEISHU_APP_SECRET=RekOQ8EV14shNMtZokRAmdmlabcefabc
 
 ### Q1：长连接模式无法保存配置？
 
-**原因**：本地 NanoClaw 服务未启动，或长连接未成功建立。
+**原因**：本地 OKClaw 服务未启动，或长连接未成功建立。
 
 **解决**：
-1. 确保 NanoClaw 已启动并连接到飞书服务器
+1. 确保 OKClaw 已启动并连接到飞书服务器
 2. 检查控制台是否输出 `connected to wss://` 开头的日志
 3. 确认飞书开发者后台显示的连接状态为"已连接"
 
