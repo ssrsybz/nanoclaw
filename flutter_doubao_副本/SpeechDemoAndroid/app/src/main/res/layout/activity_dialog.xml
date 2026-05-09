@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/activity_avatar"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".DialogActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="10dp"
+        android:gravity="bottom"
+        android:orientation="vertical"
+        tools:ignore="UselessParent">
+        <TextView
+            style="@android:style/Widget.DeviceDefault.TextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="开场白"
+            android:gravity="bottom"
+            android:scrollbars="vertical"
+            android:textAllCaps="false" />
+
+        <EditText
+            android:id="@+id/hello_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginLeft="5dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginRight="5dp"
+            android:background="@android:color/background_light"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="top"
+            android:text="@string/dialog_hello_text"
+            android:inputType="textMultiLine|text"
+            android:textSize="15sp"
+            tools:targetApi="o" />
+
+        <TextView
+            style="@android:style/Widget.DeviceDefault.TextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="文本Query"
+            android:gravity="bottom"
+            android:scrollbars="vertical"
+            android:textAllCaps="false" />
+
+        <EditText
+            android:id="@+id/chat_text_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="100dp"
+            android:layout_marginLeft="5dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginRight="5dp"
+            android:background="@android:color/background_light"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:gravity="top"
+            android:text="@string/dialog_chat_text_query_text"
+            android:inputType="textMultiLine|text"
+            android:textSize="15sp"
+            tools:targetApi="o" />
+
+        <TextView
+            android:id="@+id/result_text"
+            style="@android:style/Widget.DeviceDefault.TextView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginLeft="5dp"
+            android:layout_marginTop="2dp"
+            android:layout_marginRight="5dp"
+            android:layout_marginBottom="2dp"
+            android:layout_gravity="center"
+            android:gravity="bottom"
+            android:scrollbars="vertical"
+            android:textAllCaps="false" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="5dp"
+            android:layout_marginBottom="5dp"
+            android:background="@android:color/darker_gray" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="5dp"
+            android:layout_marginBottom="5dp"
+            android:background="@android:color/darker_gray" />
+
+        <TextView
+            android:id="@+id/engine_status"
+            style="@android:style/Widget.DeviceDefault.TextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:singleLine="true"
+            android:text="@string/hint_waiting_init"
+            android:textAllCaps="false" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="5dp"
+            android:layout_marginBottom="5dp"
+            android:background="@android:color/darker_gray" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/init_engine_button"
+                android:layout_width="0dp"
+                android:layout_height="35dp"
+                android:layout_marginLeft="5dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginRight="5dp"
+                android:layout_marginBottom="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_active_background"
+                android:text="@string/init_engine_title"
+                android:textAllCaps="false"
+                android:textColor="@color/colorBlack"
+                android:textSize="16sp"
+                tools:ignore="ButtonStyle" />
+
+            <Button
+                android:id="@+id/uninit_engine_button"
+                android:layout_width="0dp"
+                android:layout_height="35dp"
+                android:layout_marginLeft="5dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginRight="5dp"
+                android:layout_marginBottom="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_active_background"
+                android:text="@string/uninit_engine_title"
+                android:textAllCaps="false"
+                android:textColor="@color/colorBlack"
+                android:textSize="16sp"
+                tools:ignore="ButtonStyle" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/start_engin_button"
+                android:layout_width="0dp"
+                android:layout_height="35dp"
+                android:layout_marginLeft="5dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginRight="5dp"
+                android:layout_marginBottom="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_active_background"
+                android:text="@string/start_engine_title"
+                android:textAllCaps="false"
+                android:textColor="@color/colorBlack"
+                android:textSize="16sp"
+                tools:ignore="ButtonStyle" />
+
+            <Button
+                android:id="@+id/stop_button"
+                android:layout_width="0dp"
+                android:layout_height="35dp"
+                android:layout_marginLeft="5dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginRight="5dp"
+                android:layout_marginBottom="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_active_background"
+                android:text="@string/stop_engine_title"
+                android:textAllCaps="false"
+                android:textColor="@color/colorBlack"
+                android:textSize="16sp"
+                tools:ignore="ButtonStyle" />
+
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/chat_text_query"
+                android:layout_width="0dp"
+                android:layout_height="35dp"
+                android:layout_marginLeft="5dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginRight="5dp"
+                android:layout_marginBottom="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_active_background"
+                android:text="@string/chat_text_query"
+                android:textAllCaps="false"
+                android:textColor="@color/colorBlack"
+                android:textSize="16sp"
+                tools:ignore="ButtonStyle" />
+            <Button
+                android:id="@+id/engine_config"
+                android:layout_width="0dp"
+                android:layout_height="35dp"
+                android:layout_marginLeft="5dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginRight="5dp"
+                android:layout_marginBottom="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_setting_background"
+                android:drawableEnd="@mipmap/settings"
+                android:drawableRight="@mipmap/settings"
+                android:keepScreenOn="true"
+                android:text="@string/config_engine_title"
+                android:textAllCaps="false"
+                android:textColor="@color/colorBlack"
+                android:textSize="16sp"
+                tools:ignore="ButtonStyle" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

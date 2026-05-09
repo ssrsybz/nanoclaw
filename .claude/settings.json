@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/debug-proxy.sh &",
+            "timeout": 5,
+            "statusMessage": "启动调试代理...",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

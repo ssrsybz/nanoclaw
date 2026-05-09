@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="engines">
+        <item>Engine List</item>
+        <item>ASR</item>
+        <item>CAPT</item>
+        <item>FULLLINK</item>
+        <item>TTS</item>
+    </string-array>
+
+    <string-array name="recorder_type">
+        <item>Recorder</item>
+        <item>File</item>
+        <item>Stream</item>
+        <item>Directory</item>
+    </string-array>
+
+    <string-array name="dialog_recorder_type">
+        <item>Recorder</item>
+        <item>Stream</item>
+    </string-array>
+
+    <string-array name="rec_file_type">
+        <item>Wav</item>
+        <item>Aac</item>
+    </string-array>
+
+    <string-array name="asr_work_mode">
+        <item>Online</item>
+        <item>Offline</item>
+    </string-array>
+
+    <string-array name="play_speed">
+        <item>0.5</item>
+        <item>0.75</item>
+        <item>1.0</item>
+        <item>1.25</item>
+        <item>1.5</item>
+        <item>1.75</item>
+        <item>2.0</item>
+        <item>2.25</item>
+        <item>2.5</item>
+    </string-array>
+
+    <string-array name="asr_scenario_type">
+        <item>OneSentence</item>
+        <item>Streaming</item>
+    </string-array>
+
+    <string-array name="asr_result_type">
+        <item>full</item>
+        <item>single</item>
+    </string-array>
+
+    <string-array name="asr_stress_type">
+        <item>正常场景1</item>
+        <item>正常场景2</item>
+        <item>ERROR回调时析构</item>
+        <item>随机压测</item>
+    </string-array>
+
+    <string-array name="music_engine_name">
+        <item>AFP</item>
+        <item>CoverSong</item>
+        <item>Humming</item>
+    </string-array>
+
+    <string-array name="afp_resut_type">
+        <item>Bytes</item>
+        <item>Json</item>
+    </string-array>
+
+    <string-array name="tts_scenario_type">
+        <item>Normal</item>
+        <item>Novel</item>
+    </string-array>
+
+    <string-array name="tts_offline_resource_formats">
+        <item>SingleVoice</item>
+        <item>MultipleVoice</item>
+    </string-array>
+
+    <string-array name="capt_core_type">
+        <item>English sentence score</item>
+        <item>English word score</item>
+        <item>English word pronounce</item>
+        <item>Chinese sentence raw</item>
+    </string-array>
+
+    <string-array name="tts_text_type">
+        <item>Plain</item>
+        <item>SSML</item>
+    </string-array>
+
+    <string-array name="tts_work_mode">
+        <item>Online</item>
+        <item>Offline</item>
+        <item>Alternate</item>
+        <item>File</item>
+    </string-array>
+
+    <string-array name="authentication_type">
+        <item>Pre Bind</item>
+        <item>Late Bind</item>
+    </string-array>
+
+    <string-array name="fulllink_engine_type">
+        <item>fulllink</item>
+        <item>fulllink_lite</item>
+    </string-array>
+
+    <string-array name="au_ability">
+        <item>ASR</item>
+        <item>MUSIC</item>
+        <item>ASR+MUSIC</item>
+    </string-array>
+
+    <string-array name="device_type">
+        <item>pico</item>
+        <item>EH</item>
+        <item>Hero</item>
+        <item>Generic</item>
+    </string-array>
+
+    <string-array name="wakeup_words">
+        <item>大力大力（only）</item>
+        <item>大力大力（大力同学）</item>
+        <item>大力同学（大力大力）</item>
+        <item>大力同学（only）</item>
+    </string-array>
+
+    <string-array name="wakeup_mode">
+        <item>normal</item>
+        <item>disable wakeup</item>
+        <item>night mode</item>
+    </string-array>
+
+    <string-array name="kws_work_mode">
+        <item>kws_vad</item>
+        <item>kws</item>
+    </string-array>
+
+    <!-- Reply Preference -->
+    <string-array name="reply_entries">
+        <item>Reply</item>
+        <item>Reply to all</item>
+    </string-array>
+
+    <string-array name="reply_values">
+        <item>reply</item>
+        <item>reply_all</item>
+    </string-array>
+
+</resources>

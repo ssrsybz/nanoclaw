@@ -1,0 +1,1250 @@
+/**
+ * Agent Runner for OKClaw
+ * Directly invokes Claude Agent SDK without container isolation
+ * For single-user trusted environments only
+ */
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { execFile } from 'child_process';
+import { fileURLToPath } from 'url';
+
+import {
+  ASSISTANT_NAME,
+  CLAUDE_ISOLATED_CONFIG_DIR,
+  DATA_DIR,
+  GROUPS_DIR,
+  TIMEZONE,
+} from './config.js';
+import { resolveGroupFolderPath } from './group-folder.js';
+import { logger } from './logger.js';
+import { RegisteredGroup } from './types.js';
+import { pushStatus } from './star-office-reporter.js';
+import { getToolMeta, getToolResultMeta } from './tool-meta.js';
+import {
+  waitForQuestionResponse,
+  cancelPendingQuestion,
+} from './question-responder.js';
+import type { Question } from './types.js';
+
+/**
+ * Find Claude Code executable by checking common installation paths.
+ * Returns the path if found, or 'claude' to rely on PATH.
+ */
+function findClaudeCodeExecutable(): string {
+  // If user explicitly set a path in environment, use it
+  if (process.env.CLAUDE_CODE_PATH) {
+    return process.env.CLAUDE_CODE_PATH;
+  }
+
+  // Try to read from project .env file
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('CLAUDE_CODE_PATH=')) {
+          let value = trimmed.slice('CLAUDE_CODE_PATH='.length).trim();
+          // Remove quotes
+          if (
+            value.length >= 2 &&
+            ((value.startsWith('"') && value.endsWith('"')) ||
+              (value.startsWith("'") && value.endsWith("'")))
+          ) {
+            value = value.slice(1, -1);
+          }
+          if (value && fs.existsSync(value)) {
+            logger.debug({ path: value }, 'Found CLAUDE_CODE_PATH in .env');
+            return value;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, 'Failed to read CLAUDE_CODE_PATH from .env');
+  }
+
+  // Common installation paths to check (including nvm paths)
+  const homeDir = process.env.HOME || os.homedir();
+  const commonPaths = [
+    '/opt/homebrew/bin/claude',
+    '/usr/local/bin/claude',
+    '/usr/bin/claude',
+    path.join(homeDir, '.local/bin/claude'),
+  ];
+
+  // Add nvm paths if nvm is installed
+  const nvmDir = path.join(homeDir, '.nvm');
+  if (fs.existsSync(nvmDir)) {
+    try {
+      const versionsDir = path.join(nvmDir, 'versions', 'node');
+      if (fs.existsSync(versionsDir)) {
+        const versions = fs.readdirSync(versionsDir);
+        for (const version of versions) {
+          const claudePath = path.join(versionsDir, version, 'bin', 'claude');
+          if (fs.existsSync(claudePath)) {
+            commonPaths.push(claudePath);
+          }
+        }
+      }
+    } catch (err) {
+      logger.debug({ err }, 'Failed to scan nvm directories');
+    }
+  }
+
+  for (const p of commonPaths) {
+    if (fs.existsSync(p)) {
+      logger.debug({ path: p }, 'Found Claude Code executable');
+      return p;
+    }
+  }
+
+  // Fall back to 'claude' and rely on PATH
+  logger.debug('Using Claude Code from PATH');
+  return 'claude';
+}
+
+/**
+ * Load LLM configuration with project-level override support.
+ * Priority: project .env (highest) > global settings.json (default)
+ *
+ * This allows:
+ * - Global qianfan config for other projects
+ * - Project-specific LLM (GLM, Kimi, etc.) for okclaw testing
+ * - User-configured LLM when deployed as product
+ */
+function loadClaudeEnv(): {
+  env: Record<string, string>;
+  model: string;
+  baseUrl: string;
+  source: string;
+} {
+  // Step 1: Load global defaults from ~/.claude/settings.json
+  let result: Record<string, string> = {};
+  let model = 'unknown';
+  let baseUrl = 'unknown';
+  let source = 'global';
+
+  try {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    if (fs.existsSync(settingsPath)) {
+      const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      const env = settings.env || {};
+      const anthropicKeys = Object.keys(env).filter(
+        (k) => k.startsWith('ANTHROPIC_') || k === 'API_TIMEOUT_MS',
+      );
+      for (const k of anthropicKeys) {
+        result[k] = String(env[k]);
+      }
+      model = env.ANTHROPIC_MODEL || 'unknown';
+      baseUrl = env.ANTHROPIC_BASE_URL || 'unknown';
+      if (Object.keys(result).length > 0) {
+        logger.debug(
+          { keys: Object.keys(result), model, baseUrl },
+          'Loaded LLM config from global settings.json',
+        );
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, 'Failed to load global settings.json');
+  }
+
+  // Step 2: Load project .env overrides (higher priority)
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const envContent = fs.readFileSync(envPath, 'utf-8');
+      const projectEnv: Record<string, string> = {};
+
+      for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        let value = trimmed.slice(eqIdx + 1).trim();
+        // Remove quotes
+        if (
+          value.length >= 2 &&
+          ((value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'")))
+        ) {
+          value = value.slice(1, -1);
+        }
+        if (value) projectEnv[key] = value;
+      }
+
+      // Apply LLM-related overrides
+      let hasOverride = false;
+      if (projectEnv.ANTHROPIC_API_KEY) {
+        result.ANTHROPIC_API_KEY = projectEnv.ANTHROPIC_API_KEY;
+        result.ANTHROPIC_AUTH_TOKEN = projectEnv.ANTHROPIC_API_KEY; // SDK uses both
+        hasOverride = true;
+      }
+      if (projectEnv.ANTHROPIC_BASE_URL) {
+        result.ANTHROPIC_BASE_URL = projectEnv.ANTHROPIC_BASE_URL;
+        baseUrl = projectEnv.ANTHROPIC_BASE_URL;
+        hasOverride = true;
+      }
+      if (projectEnv.MODEL) {
+        result.ANTHROPIC_MODEL = projectEnv.MODEL;
+        model = projectEnv.MODEL;
+        hasOverride = true;
+      }
+
+      if (hasOverride) {
+        source = 'project';
+        logger.info(
+          {
+            model,
+            baseUrl,
+            keys: Object.keys(result).filter((k) => result[k]),
+          },
+          '🔄 Using project .env LLM config (overrides global)',
+        );
+      }
+    }
+  } catch (err) {
+    logger.debug({ err }, 'Failed to load project .env');
+  }
+
+  return { env: result, model, baseUrl, source };
+}
+
+// Sentinel markers for output parsing (consistent with container version)
+const OUTPUT_START_MARKER = '---OKCLAW_OUTPUT_START---';
+const OUTPUT_END_MARKER = '---OKCLAW_OUTPUT_END---';
+
+export interface AgentInput {
+  prompt: string;
+  sessionId?: string;
+  groupFolder: string;
+  chatJid: string;
+  isMain: boolean;
+  isScheduledTask?: boolean;
+  assistantName?: string;
+  script?: string;
+  workspacePath?: string; // If set, overrides group folder as cwd
+  enabledSkills?: string[]; // Skills to inject into systemPrompt
+  workspaceId?: string; // If set, namespaces session directory per workspace
+  conversationId?: string; // For routing AskUserQuestion responses
+}
+
+export interface AgentOutput {
+  status: 'success' | 'error';
+  result: string | null;
+  newSessionId?: string;
+  error?: string;
+  model?: string;
+  apiCalls?: {
+    total: number;
+    systemInit: number;
+    assistantThinking: number;
+    assistantText: number;
+    assistantToolUse: number;
+    toolResults: number;
+  };
+  // Streaming fields for real-time UI updates
+  streamType?:
+    | 'assistant'
+    | 'thinking'
+    | 'tool_use'
+    | 'tool_result'
+    | 'result'
+    | 'ask_user_question';
+  streamData?: {
+    text?: string;
+    thinking?: string;
+    thinkingStatus?: string;
+    toolName?: string;
+    toolInput?: string;
+    toolOutput?: string;
+    toolMeta?: import('./types.js').ToolMeta;
+    // For ask_user_question
+    questions?: import('./types.js').Question[];
+    toolUseId?: string;
+    conversationId?: string;
+  };
+}
+
+interface SessionEntry {
+  sessionId: string;
+  fullPath: string;
+  summary: string;
+  firstPrompt: string;
+}
+
+interface SessionsIndex {
+  entries: SessionEntry[];
+}
+
+const SCRIPT_TIMEOUT_MS = 30_000;
+
+/**
+ * Get the path to the group's sessions directory.
+ * When workspaceId is provided, sessions are namespaced per workspace:
+ * data/sessions/{groupFolder}--ws-{workspaceId}/.claude
+ */
+function getGroupSessionsDir(
+  groupFolder: string,
+  workspaceId?: string,
+): string {
+  if (workspaceId) {
+    return path.join(
+      DATA_DIR,
+      'sessions',
+      `${groupFolder}--ws-${workspaceId}`,
+      '.claude',
+    );
+  }
+  return path.join(DATA_DIR, 'sessions', groupFolder, '.claude');
+}
+
+/**
+ * Ensure the sessions directory exists with proper settings.
+ * When workspaceId is provided, sessions are namespaced per workspace.
+ */
+function ensureSessionsDir(groupFolder: string, workspaceId?: string): string {
+  const sessionsDir = getGroupSessionsDir(groupFolder, workspaceId);
+  fs.mkdirSync(sessionsDir, { recursive: true });
+
+  // Create settings.json if it doesn't exist
+  const settingsFile = path.join(sessionsDir, 'settings.json');
+  if (!fs.existsSync(settingsFile)) {
+    fs.writeFileSync(
+      settingsFile,
+      JSON.stringify(
+        {
+          env: {
+            CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: '1',
+            CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: '1',
+            CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+  }
+
+  return sessionsDir;
+}
+
+/**
+ * Get the working directory for a group
+ */
+function getGroupWorkingDir(groupFolder: string): string {
+  const groupDir = resolveGroupFolderPath(groupFolder);
+  fs.mkdirSync(groupDir, { recursive: true });
+  return groupDir;
+}
+
+/**
+ * Run a script for scheduled tasks
+ */
+async function runScript(
+  script: string,
+): Promise<{ wakeAgent: boolean; data?: unknown } | null> {
+  const scriptPath = '/tmp/task-script.sh';
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+
+  return new Promise((resolve) => {
+    execFile(
+      'bash',
+      [scriptPath],
+      {
+        timeout: SCRIPT_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+        env: process.env,
+      },
+      (error, stdout, stderr) => {
+        if (stderr) {
+          logger.debug(`Script stderr: ${stderr.slice(0, 500)}`);
+        }
+
+        if (error) {
+          logger.warn(`Script error: ${error.message}`);
+          return resolve(null);
+        }
+
+        const lines = stdout.trim().split('\n');
+        const lastLine = lines[lines.length - 1];
+        if (!lastLine) {
+          logger.debug('Script produced no output');
+          return resolve(null);
+        }
+
+        try {
+          const result = JSON.parse(lastLine);
+          if (typeof result.wakeAgent !== 'boolean') {
+            logger.warn(`Script output missing wakeAgent boolean`);
+            return resolve(null);
+          }
+          resolve(result);
+        } catch {
+          logger.warn(
+            `Script output is not valid JSON: ${lastLine.slice(0, 200)}`,
+          );
+          resolve(null);
+        }
+      },
+    );
+  });
+}
+
+/**
+ * Write output marker to stdout
+ */
+function writeOutput(output: AgentOutput): void {
+  console.log(OUTPUT_START_MARKER);
+  console.log(JSON.stringify(output));
+  console.log(OUTPUT_END_MARKER);
+}
+
+/**
+ * Get session summary from sessions index
+ */
+function getSessionSummary(
+  sessionId: string,
+  transcriptPath: string,
+): string | null {
+  const projectDir = path.dirname(transcriptPath);
+  const indexPath = path.join(projectDir, 'sessions-index.json');
+
+  if (!fs.existsSync(indexPath)) {
+    return null;
+  }
+
+  try {
+    const index: SessionsIndex = JSON.parse(
+      fs.readFileSync(indexPath, 'utf-8'),
+    );
+    const entry = index.entries.find((e) => e.sessionId === sessionId);
+    return entry?.summary || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format transcript as markdown
+ */
+function formatTranscriptMarkdown(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  title?: string | null,
+  assistantName?: string,
+): string {
+  const now = new Date();
+  const formatDateTime = (d: Date) =>
+    d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+  const lines: string[] = [];
+  lines.push(`# ${title || 'Conversation'}`);
+  lines.push('');
+  lines.push(`Archived: ${formatDateTime(now)}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  for (const msg of messages) {
+    const sender = msg.role === 'user' ? 'User' : assistantName || 'Assistant';
+    const content =
+      msg.content.length > 2000
+        ? msg.content.slice(0, 2000) + '...'
+        : msg.content;
+    lines.push(`**${sender}**: ${content}`);
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Parse transcript content into messages
+ */
+function parseTranscript(
+  content: string,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+
+  for (const line of content.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type === 'user' && entry.message?.content) {
+        const text =
+          typeof entry.message.content === 'string'
+            ? entry.message.content
+            : entry.message.content
+                .map((c: { text?: string }) => c.text || '')
+                .join('');
+        if (text) messages.push({ role: 'user', content: text });
+      } else if (entry.type === 'assistant' && entry.message?.content) {
+        const textParts = entry.message.content
+          .filter((c: { type: string }) => c.type === 'text')
+          .map((c: { text: string }) => c.text);
+        const text = textParts.join('');
+        if (text) messages.push({ role: 'assistant', content: text });
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
+  return messages;
+}
+
+function sanitizeFilename(summary: string): string {
+  return summary
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
+function generateFallbackName(): string {
+  const time = new Date();
+  return `conversation-${time.getHours().toString().padStart(2, '0')}${time
+    .getMinutes()
+    .toString()
+    .padStart(2, '0')}`;
+}
+
+/**
+ * Main function to run the agent directly
+ * This is the primary entry point for agent execution
+ */
+export async function runAgentDirect(
+  group: RegisteredGroup,
+  input: AgentInput,
+  onOutput?: (output: AgentOutput) => Promise<void>,
+): Promise<AgentOutput> {
+  const startTime = Date.now();
+  const groupDir = input.workspacePath || getGroupWorkingDir(input.groupFolder);
+  const sessionsDir = ensureSessionsDir(input.groupFolder, input.workspaceId);
+
+  logger.info(
+    {
+      group: group.name,
+      groupFolder: input.groupFolder,
+      isMain: input.isMain,
+      isScheduledTask: input.isScheduledTask,
+    },
+    'Starting agent',
+  );
+
+  // Push status to Star Office UI
+  void pushStatus('executing', `正在为 ${group.name} 处理任务...`);
+
+  // Build prompt
+  let prompt = input.prompt;
+  if (input.isScheduledTask) {
+    prompt = `[SCHEDULED TASK - The following message was sent automatically and is not coming directly from the user or group.]\n\n${prompt}`;
+  }
+
+  // Script phase for scheduled tasks
+  if (input.script && input.isScheduledTask) {
+    logger.debug('Running task script...');
+    const scriptResult = await runScript(input.script);
+
+    if (!scriptResult || !scriptResult.wakeAgent) {
+      const reason = scriptResult
+        ? 'wakeAgent=false'
+        : 'script error/no output';
+      logger.info(`Script decided not to wake agent: ${reason}`);
+      return { status: 'success', result: null };
+    }
+
+    prompt = `[SCHEDULED TASK]\n\nScript output:\n${JSON.stringify(scriptResult.data, null, 2)}\n\nInstructions:\n${input.prompt}`;
+  }
+
+  // Determine additional directories to mount
+  const extraDirs: string[] = [];
+  const globalDir = path.join(GROUPS_DIR, 'global');
+  if (!input.isMain && fs.existsSync(globalDir)) {
+    extraDirs.push(globalDir);
+  }
+
+  // MCP tools callback - will be implemented with in-process MCP
+  // For now, we use a placeholder that logs
+  const mcpTools = {
+    sendMessage: async (text: string) => {
+      logger.debug(`MCP send_message: ${text.slice(0, 100)}...`);
+      // This will be replaced with actual channel message sending
+    },
+    scheduleTask: async (params: unknown) => {
+      logger.debug(
+        `MCP schedule_task: ${JSON.stringify(params).slice(0, 100)}...`,
+      );
+      // This will be replaced with actual task scheduling
+    },
+  };
+
+  // Message stream for handling follow-up messages
+  class MessageStream {
+    private queue: Array<{
+      type: 'user';
+      message: { role: 'user'; content: string };
+      parent_tool_use_id: null;
+      session_id: string;
+    }> = [];
+    private waiting: (() => void) | null = null;
+    private done = false;
+
+    push(text: string): void {
+      this.queue.push({
+        type: 'user',
+        message: { role: 'user', content: text },
+        parent_tool_use_id: null,
+        session_id: '',
+      });
+      this.waiting?.();
+    }
+
+    end(): void {
+      this.done = true;
+      this.waiting?.();
+    }
+
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        while (this.queue.length > 0) {
+          yield this.queue.shift()!;
+        }
+        if (this.done) return;
+        await new Promise<void>((r) => {
+          this.waiting = r;
+        });
+        this.waiting = null;
+      }
+    }
+  }
+
+  const stream = new MessageStream();
+  stream.push(prompt);
+
+  // IPC input watcher - poll for follow-up messages
+  const inputDir = path.join(DATA_DIR, 'ipc', input.groupFolder, 'input');
+  const processedFiles = new Set<string>();
+  let inputCheckInterval: NodeJS.Timeout | null = null;
+
+  const checkInputFiles = () => {
+    try {
+      if (!fs.existsSync(inputDir)) return;
+      const files = fs.readdirSync(inputDir).filter((f) => f.endsWith('.json'));
+      for (const file of files) {
+        if (processedFiles.has(file)) continue;
+        processedFiles.add(file);
+
+        const filePath = path.join(inputDir, file);
+        try {
+          const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+          if (data.type === 'message' && data.text) {
+            logger.debug(
+              { file },
+              'IPC input message received, pushing to agent stream',
+            );
+            stream.push(data.text);
+          }
+          // Remove the file after processing
+          fs.unlinkSync(filePath);
+        } catch (err) {
+          logger.warn({ file, err }, 'Failed to process IPC input file');
+        }
+      }
+    } catch (err) {
+      logger.debug({ err }, 'Error checking input directory');
+    }
+  };
+
+  try {
+    // Dynamic import of Claude Agent SDK
+    // This allows the code to work even if the SDK is not installed yet
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+    let sessionId = input.sessionId;
+    // NOTE: We intentionally do NOT validate the session transcript file here.
+    // The Claude CLI stores session transcripts in its own internal directory
+    // (typically ~/.claude/projects/{cwd-hash}/sessions/), NOT in our
+    // data/sessions/ directory. Validating against the wrong path would
+    // always fail, causing every message to start a new session and lose
+    // all conversation context. Trust the session ID returned by the SDK.
+    logger.info(
+      {
+        sessionId: sessionId || '(new session)',
+        groupFolder: input.groupFolder,
+        workspaceId: input.workspaceId,
+      },
+      'Resuming agent session',
+    );
+    let newSessionId: string | undefined;
+    let lastAssistantUuid: string | undefined;
+    let messageCount = 0;
+    let resultCount = 0;
+    // Track API call counts by message type
+    const apiCallCounts = {
+      systemInit: 0,
+      assistantThinking: 0,
+      assistantText: 0,
+      assistantToolUse: 0,
+      userToolResult: 0,
+      other: 0,
+    };
+
+    // Start polling for input messages
+    inputCheckInterval = setInterval(checkInputFiles, 1000);
+
+    // Global CLAUDE.md for non-main groups
+    let globalClaudeMd: string | undefined;
+    if (!input.isMain && fs.existsSync(path.join(globalDir, 'CLAUDE.md'))) {
+      globalClaudeMd = fs.readFileSync(
+        path.join(globalDir, 'CLAUDE.md'),
+        'utf-8',
+      );
+    }
+
+    // Inject enabled skills into systemPrompt
+    let skillContent = '';
+    if (
+      input.enabledSkills &&
+      input.enabledSkills.length > 0 &&
+      input.workspacePath
+    ) {
+      const MAX_SKILL_BYTES = 32 * 1024;
+      let totalBytes = 0;
+      for (const skillName of input.enabledSkills) {
+        const skillMdPath = path.join(
+          input.workspacePath,
+          '.claude',
+          'skills',
+          skillName,
+          'SKILL.md',
+        );
+        if (fs.existsSync(skillMdPath)) {
+          const content = fs.readFileSync(skillMdPath, 'utf-8');
+          const wrapped = `\n<!-- SKILL: ${skillName} -->\n${content}\n<!-- END SKILL: ${skillName} -->\n`;
+          if (totalBytes + wrapped.length > MAX_SKILL_BYTES) break;
+          skillContent += wrapped;
+          totalBytes += wrapped.length;
+        }
+      }
+    }
+
+    const systemPrompt =
+      (globalClaudeMd || 'You are a helpful AI assistant.') + skillContent;
+
+    // Allowed tools — only standard tools; MCP tool names are added
+    // dynamically when mcpServers is configured.
+    const allowedTools = [
+      'Bash',
+      'Read',
+      'Write',
+      'Edit',
+      'Glob',
+      'Grep',
+      'WebSearch',
+      'WebFetch',
+      'Task',
+      'TaskOutput',
+      'TaskStop',
+      'TeamCreate',
+      'TeamDelete',
+      'SendMessage',
+      'TodoWrite',
+      'ToolSearch',
+      'Skill',
+      'NotebookEdit',
+      'AskUserQuestion', // Built-in tool for asking user questions with dialog
+    ];
+
+    // MCP server configuration
+    const distDir = path.dirname(fileURLToPath(import.meta.url));
+    const mcpServerPath = path.join(distDir, 'mcp-stdio.js');
+
+    // Build MCP config: only enable when the server binary exists
+    // Remove CLAUDECODE to allow nested Claude Code execution
+    // Set CLAUDE_CONFIG_DIR for isolation from host Claude Code instance
+    const { CLAUDECODE: _, ...envWithoutClaudeCode } = process.env;
+
+    // Ensure isolated config directory exists
+    fs.mkdirSync(CLAUDE_ISOLATED_CONFIG_DIR, { recursive: true });
+    logger.debug(
+      { configDir: CLAUDE_ISOLATED_CONFIG_DIR },
+      'Using isolated Claude config directory',
+    );
+
+    // Environment with isolation settings
+    const isolatedEnv = {
+      ...envWithoutClaudeCode,
+      CLAUDE_CONFIG_DIR: CLAUDE_ISOLATED_CONFIG_DIR,
+    };
+
+    let mcpServersConfig: Record<string, unknown> | undefined;
+    if (fs.existsSync(mcpServerPath)) {
+      mcpServersConfig = {
+        okclaw: {
+          command: process.execPath,
+          args: [mcpServerPath],
+          env: isolatedEnv,
+        },
+      };
+      // Add MCP tools to allowed list only when MCP is active
+      allowedTools.push(
+        'mcp__okclaw__send_message',
+        'mcp__okclaw__schedule_task',
+        'mcp__okclaw__list_tasks',
+        'mcp__okclaw__pause_task',
+        'mcp__okclaw__resume_task',
+        'mcp__okclaw__cancel_task',
+        'mcp__okclaw__update_task',
+        'mcp__okclaw__register_group',
+      );
+    }
+
+    // Run the query
+    const { env: claudeEnv, model, baseUrl } = loadClaudeEnv();
+
+    // canUseTool callback for handling AskUserQuestion tool
+    // This intercepts the tool before execution and gets user answers
+    const canUseTool = async (
+      toolName: string,
+      toolInput: Record<string, unknown>,
+      options: { toolUseID: string; signal: AbortSignal },
+    ): Promise<
+      | { behavior: 'allow'; updatedInput: Record<string, unknown> }
+      | { behavior: 'deny'; message: string; interrupt?: boolean }
+    > => {
+      // Handle AskUserQuestion tool - show dialog and wait for user response
+      if (toolName === 'AskUserQuestion') {
+        const questions = toolInput.questions as Question[] | undefined;
+        if (!questions || !Array.isArray(questions)) {
+          return { behavior: 'deny', message: 'Invalid questions format' };
+        }
+
+        const conversationId = input.conversationId;
+        if (!conversationId) {
+          logger.warn('AskUserQuestion: no conversationId available');
+          return { behavior: 'deny', message: 'No conversation ID available' };
+        }
+
+        logger.info(
+          {
+            conversationId,
+            toolUseId: options.toolUseID,
+            questionCount: questions.length,
+          },
+          'AskUserQuestion: sending questions to frontend',
+        );
+
+        // Send questions to frontend via onOutput
+        if (onOutput) {
+          await onOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            streamType: 'ask_user_question',
+            streamData: {
+              questions,
+              toolUseId: options.toolUseID,
+              conversationId,
+            },
+          });
+        }
+
+        try {
+          // Wait for user response (with 5 minute timeout)
+          const { answers, annotations } = await waitForQuestionResponse(
+            options.toolUseID,
+            conversationId,
+            questions,
+            300000, // 5 minutes
+          );
+
+          logger.info(
+            {
+              conversationId,
+              toolUseId: options.toolUseID,
+              answerCount: Object.keys(answers).length,
+            },
+            'AskUserQuestion: received answers from frontend',
+          );
+
+          // Return the updated input with answers
+          return {
+            behavior: 'allow',
+            updatedInput: {
+              ...toolInput,
+              answers,
+              annotations,
+            },
+          };
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          logger.warn(
+            { conversationId, toolUseId: options.toolUseID, error: errorMsg },
+            'AskUserQuestion: failed to get answers',
+          );
+          return {
+            behavior: 'deny',
+            message: `Failed to get answers: ${errorMsg}`,
+          };
+        }
+      }
+
+      // For all other tools, allow with original input
+      return { behavior: 'allow', updatedInput: toolInput };
+    };
+
+    for await (const message of query({
+      prompt: prompt,
+      options: {
+        cwd: groupDir,
+        additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
+        resume: sessionId,
+        resumeSessionAt: undefined,
+        systemPrompt: systemPrompt,
+        allowedTools,
+        env: {
+          // Load from settings.json to ensure API credentials are available
+          // even when the shell doesn't have ANTHROPIC_* vars injected
+          ...claudeEnv,
+          ...isolatedEnv,
+          // Keep debug on for diagnostics (remove in production)
+          DEBUG_CLAUDE_AGENT_SDK: '1',
+        },
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        pathToClaudeCodeExecutable: findClaudeCodeExecutable(),
+        stderr: (data) => {
+          const stderrStr = typeof data === 'string' ? data : String(data);
+          logger.info(
+            { group: group.name, stderr: stderrStr.slice(0, 500) },
+            'Claude stderr',
+          );
+        },
+        mcpServers: mcpServersConfig as
+          | Record<
+              string,
+              import('@anthropic-ai/claude-agent-sdk').McpServerConfig
+            >
+          | undefined,
+        canUseTool,
+      },
+    })) {
+      messageCount++;
+      const msgType =
+        message.type === 'system'
+          ? `system/${(message as { subtype?: string }).subtype}`
+          : message.type;
+      logger.debug(`[msg #${messageCount}] type=${msgType}`);
+
+      // Track API calls by message type
+      if (
+        message.type === 'system' &&
+        (message as { subtype?: string }).subtype === 'init'
+      ) {
+        apiCallCounts.systemInit++;
+      }
+
+      if (message.type === 'assistant' && 'uuid' in message) {
+        lastAssistantUuid = (message as { uuid: string }).uuid;
+
+        // Forward assistant message parts (text, thinking, tool_use) for streaming
+        const assistantMsg = message as unknown as {
+          message?: {
+            content?: Array<{
+              type: string;
+              text?: string;
+              thinking?: string;
+              name?: string;
+              input?: unknown;
+            }>;
+          };
+        };
+        if (onOutput && assistantMsg.message?.content) {
+          for (const part of assistantMsg.message.content) {
+            if (part.type === 'text' && part.text) {
+              apiCallCounts.assistantText++;
+              await onOutput({
+                status: 'success',
+                result: null,
+                newSessionId,
+                streamType: 'assistant',
+                streamData: { text: part.text },
+              });
+            } else if (part.type === 'thinking' && part.thinking) {
+              apiCallCounts.assistantThinking++;
+              await onOutput({
+                status: 'success',
+                result: null,
+                newSessionId,
+                streamType: 'thinking',
+                streamData: {
+                  thinking: part.thinking,
+                  thinkingStatus: 'running',
+                },
+              });
+            } else if (part.type === 'tool_use' && part.name) {
+              apiCallCounts.assistantToolUse++;
+              await onOutput({
+                status: 'success',
+                result: null,
+                newSessionId,
+                streamType: 'tool_use',
+                streamData: {
+                  toolMeta: getToolMeta(part.name, part.input),
+                  toolName: part.name,
+                  toolInput:
+                    typeof part.input === 'string'
+                      ? part.input
+                      : JSON.stringify(part.input, null, 2),
+                },
+              });
+            }
+          }
+        }
+      }
+
+      // Handle tool_result parts from user messages (SDK puts tool results in user messages)
+      if (message.type === 'user' && onOutput) {
+        const userMsg = message as unknown as {
+          message?: {
+            content?: Array<{
+              type: string;
+              tool_use_id?: string;
+              content?: string | Array<{ type: string; text?: string }>;
+            }>;
+          };
+        };
+        if (userMsg.message?.content) {
+          for (const part of userMsg.message.content) {
+            if (part.type === 'tool_result') {
+              apiCallCounts.userToolResult++;
+              // Note: tool_result is NOT an API call - it's the result of local tool execution
+              // We track it separately to understand the full conversation flow
+              let text = '';
+              if (typeof part.content === 'string') {
+                text = part.content;
+              } else if (Array.isArray(part.content)) {
+                text = part.content
+                  .filter((b: { type: string }) => b.type === 'text')
+                  .map((b: { text?: string }) => b.text || '')
+                  .join('');
+              }
+              if (text) {
+                logger.debug(
+                  { toolResultLength: text.length },
+                  'Sending tool_result to stream',
+                );
+                await onOutput({
+                  status: 'success',
+                  result: null,
+                  newSessionId,
+                  streamType: 'tool_result',
+                  streamData: {
+                    toolOutput: text,
+                    toolMeta: {
+                      icon: '📋',
+                      displayText: '执行结果',
+                      status: 'complete',
+                    },
+                  },
+                });
+              } else {
+                logger.debug(
+                  { toolUseId: part.tool_use_id },
+                  'Tool result has no text content, skipping',
+                );
+              }
+            }
+          }
+        }
+      }
+
+      if (message.type === 'system' && message.subtype === 'init') {
+        newSessionId = message.session_id;
+        logger.info(
+          {
+            sessionId: newSessionId,
+            previousSessionId: sessionId || '(none)',
+            isNewSession: !sessionId,
+          },
+          'Session initialized',
+        );
+      }
+
+      if (
+        message.type === 'system' &&
+        (message as { subtype?: string }).subtype === 'task_notification'
+      ) {
+        const tn = message as unknown as {
+          task_id: string;
+          status: string;
+          summary: string;
+        };
+        logger.debug(
+          `Task notification: task=${tn.task_id} status=${tn.status}`,
+        );
+      }
+
+      if (message.type === 'result') {
+        resultCount++;
+        const textResult =
+          'result' in message ? (message as { result?: string }).result : null;
+        logger.debug(
+          `Result #${resultCount}: ${textResult ? textResult.slice(0, 200) : 'null'}`,
+        );
+
+        const output: AgentOutput = {
+          status: 'success',
+          result: textResult || null,
+          newSessionId,
+        };
+
+        if (onOutput) {
+          await onOutput(output);
+        }
+      }
+    }
+
+    // Calculate total API calls (excluding tool_result which are local executions)
+    const totalApiCalls =
+      apiCallCounts.systemInit +
+      apiCallCounts.assistantThinking +
+      apiCallCounts.assistantText +
+      apiCallCounts.assistantToolUse;
+
+    const duration = Date.now() - startTime;
+    logger.info(
+      {
+        group: group.name,
+        duration,
+        messageCount,
+        resultCount,
+        newSessionId,
+        model,
+        baseUrl,
+        apiCalls: {
+          total: totalApiCalls,
+          systemInit: apiCallCounts.systemInit,
+          assistantThinking: apiCallCounts.assistantThinking,
+          assistantText: apiCallCounts.assistantText,
+          assistantToolUse: apiCallCounts.assistantToolUse,
+          toolResults: apiCallCounts.userToolResult,
+        },
+      },
+      'Agent completed',
+    );
+
+    // Cleanup input watcher
+    if (inputCheckInterval) {
+      clearInterval(inputCheckInterval);
+      stream.end();
+    }
+
+    // Push idle status to Star Office UI
+    void pushStatus('idle', '任务完成，待命中...');
+
+    return {
+      status: 'success',
+      result: null,
+      newSessionId,
+      model,
+      apiCalls: {
+        total: totalApiCalls,
+        systemInit: apiCallCounts.systemInit,
+        assistantThinking: apiCallCounts.assistantThinking,
+        assistantText: apiCallCounts.assistantText,
+        assistantToolUse: apiCallCounts.assistantToolUse,
+        toolResults: apiCallCounts.userToolResult,
+      },
+    };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger.error({ group: group.name, error: errorMessage }, 'Agent error');
+
+    // Push error status to Star Office UI
+    void pushStatus('error', '任务执行出错，排查中...');
+
+    // Cleanup input watcher on error
+    if (inputCheckInterval) {
+      clearInterval(inputCheckInterval);
+      stream.end();
+    }
+
+    return {
+      status: 'error',
+      result: null,
+      error: errorMessage,
+    };
+  }
+}
+
+/**
+ * Write tasks snapshot for the agent to read
+ * (Kept for compatibility, but may not be needed without containers)
+ */
+export function writeTasksSnapshot(
+  groupFolder: string,
+  isMain: boolean,
+  tasks: Array<{
+    id: string;
+    groupFolder: string;
+    prompt: string;
+    script?: string | null;
+    schedule_type: string;
+    schedule_value: string;
+    status: string;
+    next_run: string | null;
+  }>,
+): void {
+  const ipcDir = path.join(DATA_DIR, 'ipc', groupFolder);
+  fs.mkdirSync(ipcDir, { recursive: true });
+
+  const filteredTasks = isMain
+    ? tasks
+    : tasks.filter((t) => t.groupFolder === groupFolder);
+  const tasksFile = path.join(ipcDir, 'current_tasks.json');
+  fs.writeFileSync(tasksFile, JSON.stringify(filteredTasks, null, 2));
+}
+
+export interface AvailableGroup {
+  jid: string;
+  name: string;
+  lastActivity: string;
+  isRegistered: boolean;
+}
+
+/**
+ * Write available groups snapshot for the agent to read
+ */
+export function writeGroupsSnapshot(
+  groupFolder: string,
+  isMain: boolean,
+  groups: AvailableGroup[],
+  _registeredJids: Set<string>,
+): void {
+  const ipcDir = path.join(DATA_DIR, 'ipc', groupFolder);
+  fs.mkdirSync(ipcDir, { recursive: true });
+
+  const visibleGroups = isMain ? groups : [];
+  const groupsFile = path.join(ipcDir, 'available_groups.json');
+  fs.writeFileSync(
+    groupsFile,
+    JSON.stringify(
+      {
+        groups: visibleGroups,
+        lastSync: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  );
+}

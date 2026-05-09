@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">bytedance.com</domain>
+        <domain includeSubdomains="true">volcengine.com</domain>
+        <domain includeSubdomains="true">openspeech.bytedance.com</domain>
+    </domain-config>
+</network-security-config>

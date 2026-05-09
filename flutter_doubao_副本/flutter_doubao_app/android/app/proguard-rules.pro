@@ -1,0 +1,15 @@
+-dontwarn org.joda.time.**
+-dontwarn springfox.documentation.spring.web.json.Json
+-dontwarn com.alibaba.fastjson.support.springfox.**
+-dontwarn java.awt.**
+-dontwarn javax.money.**
+-dontwarn javax.ws.rs.**
+-dontwarn org.glassfish.jersey.**
+-dontwarn org.javamoney.moneta.**
+-dontwarn com.alibaba.fastjson.support.jaxrs.**
+-dontwarn com.alibaba.fastjson.support.moneta.**
+-dontwarn com.alibaba.fastjson.serializer.AwtCodec
+-dontwarn com.google.common.collect.**
+-dontwarn com.hihonor.android.magicx.**
+-keep class com.volcengine.** { *; }
+-keep class com.ss.** { *; }

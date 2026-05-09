@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.npm-cache/
+
+# Build output
+dist/
+build/
+*.dmg
+*.pkg
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+
+# Large files (models, videos, APKs)
+*.gguf
+*.mp4
+*.MP4
+*.apk
+*.ipa
+
+# Local data
+store/
+data/
+logs/
+
+# Secrets
+*.keys.json
+.env
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+
+# Temp
+.tmp-*
+*.tmp

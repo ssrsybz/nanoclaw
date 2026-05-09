@@ -1,0 +1,34 @@
+{
+  "name": "claude-remote-control",
+  "version": "1.0.0",
+  "description": "Claude Code 远程控制系统 - 手机端与电脑终端消息互通系统",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "terminal-service",
+    "cloud-relay",
+    "mobile-client"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev:terminal": "ts-node terminal-service/index.ts",
+    "dev:cloud": "ts-node cloud-relay/index.ts",
+    "dev:mobile": "cd mobile-client && npm start",
+    "start": "./scripts/start-dev.sh",
+    "debug": "./scripts/debug-proxy.sh",
+    "test": "jest",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.11.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
