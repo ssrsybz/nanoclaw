@@ -525,6 +525,8 @@ export async function runAgentDirect(
   group: RegisteredGroup,
   input: AgentInput,
   onOutput?: (output: AgentOutput) => Promise<void>,
+  abortController?: AbortController,
+  onCancelReady?: (cancelFn: () => Promise<void>) => void,
 ): Promise<AgentOutput> {
   const startTime = Date.now();
   const groupDir = input.workspacePath || getGroupWorkingDir(input.groupFolder);
@@ -902,7 +904,8 @@ export async function runAgentDirect(
       return { behavior: 'allow', updatedInput: toolInput };
     };
 
-    for await (const message of query({
+    // Create the query instance
+    const queryInstance = query({
       prompt: prompt,
       options: {
         cwd: groupDir,
@@ -910,6 +913,10 @@ export async function runAgentDirect(
         resume: sessionId,
         resumeSessionAt: undefined,
         systemPrompt: systemPrompt,
+        // Explicitly disable filesystem settings loading for SDK isolation mode
+        // In SDK 0.3.x, the default changed to load all settings, but we manage
+        // config through CLAUDE_ISOLATED_CONFIG_DIR and loadClaudeEnv() instead
+        settingSources: [],
         allowedTools,
         env: {
           // Load from settings.json to ensure API credentials are available
@@ -936,8 +943,17 @@ export async function runAgentDirect(
             >
           | undefined,
         canUseTool,
+        // Pass AbortController for cancellation support
+        abortController,
       },
-    })) {
+    });
+
+    // Expose the interrupt() function to the caller for cancellation
+    if (onCancelReady) {
+      onCancelReady(() => queryInstance.interrupt());
+    }
+
+    for await (const message of queryInstance) {
       messageCount++;
       const msgType =
         message.type === 'system'
@@ -1167,6 +1183,29 @@ export async function runAgentDirect(
       },
     };
   } catch (err) {
+    // Check if this is an abort error (user cancelled)
+    const isAbortError =
+      err instanceof Error &&
+      (err.name === 'AbortError' ||
+        err.message.includes('aborted') ||
+        err.message.includes('cancelled'));
+
+    if (isAbortError) {
+      logger.info({ group: group.name }, 'Agent cancelled by user');
+
+      // Cleanup input watcher
+      if (inputCheckInterval) {
+        clearInterval(inputCheckInterval);
+        stream.end();
+      }
+
+      return {
+        status: 'success', // Treat cancellation as success (not an error)
+        result: null,
+        newSessionId: undefined,
+      };
+    }
+
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error({ group: group.name, error: errorMessage }, 'Agent error');
 

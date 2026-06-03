@@ -594,9 +594,15 @@ async function runAgent(
       }
     : undefined;
 
+  // Create AbortController for cancellation support
+  const abortController = new AbortController();
+
   try {
     // Register this agent session with the queue (keyed by chatJid so piping works per-JID)
     queue.registerAgent(chatJid, sessionKey);
+
+    // Store the AbortController so stop requests can cancel this agent
+    queue.setAbortController(chatJid, abortController);
 
     const output = await runAgentDirect(
       group,
@@ -613,6 +619,9 @@ async function runAgent(
         conversationId,
       },
       wrappedOnOutput,
+      abortController,
+      // Register the interrupt() function as an alternative cancellation method
+      (cancelFn) => queue.setCancelFn(chatJid, cancelFn),
     );
 
     if (output.newSessionId) {
@@ -897,6 +906,10 @@ async function main(): Promise<void> {
     getActiveConversationId: (workspaceId: string): string | null => {
       const chatJid = `web:ws-${workspaceId}`;
       return queue.getActiveConversationId(chatJid);
+    },
+    // Cancel the running agent for a workspace (used by Web IM stop button)
+    onCancel: (chatJid: string): boolean => {
+      return queue.cancelAgent(chatJid);
     },
   };
 

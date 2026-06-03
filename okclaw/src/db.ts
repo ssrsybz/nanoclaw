@@ -126,6 +126,73 @@ function createSchema(database: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_conversations_workspace ON conversations(workspace_id);
     CREATE INDEX IF NOT EXISTS idx_conversation_messages_conversation ON conversation_messages(conversation_id);
+
+    -- Launchpad tables
+    CREATE TABLE IF NOT EXISTS launchpad_apps (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      name_zh TEXT,
+      kind TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      bundle_id TEXT,
+      icon TEXT,
+      category TEXT,
+      tags TEXT DEFAULT '[]',
+      children TEXT,
+      launch_command TEXT,
+      launch_args TEXT,
+      working_directory TEXT,
+      env TEXT,
+      usage_count INTEGER DEFAULT 0,
+      last_used_at TEXT,
+      installed_at TEXT,
+      description TEXT,
+      version TEXT,
+      developer TEXT,
+      homepage TEXT,
+      repository TEXT,
+      store_id TEXT,
+      status TEXT DEFAULT 'installed',
+      update_available INTEGER DEFAULT 0,
+      installed_version TEXT,
+      latest_version TEXT,
+      hidden INTEGER DEFAULT 0,
+      pinned INTEGER DEFAULT 0,
+      page_index INTEGER DEFAULT 0,
+      grid_index INTEGER DEFAULT 0,
+      parent_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_launchpad_apps_category ON launchpad_apps(category);
+    CREATE INDEX IF NOT EXISTS idx_launchpad_apps_kind ON launchpad_apps(kind);
+    CREATE INDEX IF NOT EXISTS idx_launchpad_apps_usage ON launchpad_apps(usage_count DESC);
+    CREATE INDEX IF NOT EXISTS idx_launchpad_apps_status ON launchpad_apps(status);
+
+    CREATE TABLE IF NOT EXISTS launchpad_categories (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      name_zh TEXT,
+      icon TEXT,
+      type TEXT DEFAULT 'custom',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS launchpad_layout (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      columns INTEGER DEFAULT 7,
+      rows INTEGER DEFAULT 5,
+      icon_size INTEGER DEFAULT 64,
+      show_labels INTEGER DEFAULT 1,
+      animation_enabled INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS launchpad_scan_dirs (
+      path TEXT PRIMARY KEY,
+      enabled INTEGER DEFAULT 1,
+      watch INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -228,6 +295,32 @@ function createSchema(database: Database.Database): void {
     );
   } catch {
     // Column already exists, ignore
+  }
+
+  // Migration: add parent_id column to launchpad_apps for folder support
+  try {
+    database.exec(
+      `ALTER TABLE launchpad_apps ADD COLUMN parent_id TEXT`,
+    );
+  } catch {
+    // Column already exists, ignore
+  }
+
+  // Migration: add smart launch columns
+  const launchpadMigrations = [
+    `ALTER TABLE launchpad_apps ADD COLUMN terminal_mode TEXT DEFAULT 'new-window'`,
+    `ALTER TABLE launchpad_apps ADD COLUMN pre_launch_script TEXT`,
+    `ALTER TABLE launchpad_apps ADD COLUMN post_launch_actions TEXT`,
+    `ALTER TABLE launchpad_apps ADD COLUMN dependencies TEXT`,
+    `ALTER TABLE launchpad_apps ADD COLUMN auto_detect INTEGER DEFAULT 1`,
+  ];
+
+  for (const sql of launchpadMigrations) {
+    try {
+      database.exec(sql);
+    } catch {
+      // Column already exists, ignore
+    }
   }
 }
 
@@ -1044,4 +1137,328 @@ export function getConversationMessages(
       ) ORDER BY created_at ASC, _rowid ASC`,
     )
     .all(conversationId, limit) as ConversationMessageRow[];
+}
+
+// --- Launchpad helpers ---
+
+import type { LaunchpadItem, LaunchpadLayout, AppCategory } from './channels/launchpad/types.js';
+
+export interface LaunchpadAppRow {
+  id: string;
+  name: string;
+  name_zh: string | null;
+  kind: string;
+  path: string;
+  bundle_id: string | null;
+  icon: string | null;
+  category: string | null;
+  tags: string | null;
+  children: string | null;
+  launch_command: string | null;
+  launch_args: string | null;
+  working_directory: string | null;
+  env: string | null;
+  usage_count: number;
+  last_used_at: string | null;
+  installed_at: string | null;
+  description: string | null;
+  version: string | null;
+  developer: string | null;
+  homepage: string | null;
+  repository: string | null;
+  store_id: string | null;
+  status: string;
+  update_available: number;
+  installed_version: string | null;
+  latest_version: string | null;
+  hidden: number;
+  pinned: number;
+  page_index: number;
+  grid_index: number;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getAllLaunchpadApps(options?: {
+  kind?: string;
+  category?: string;
+  includeHidden?: boolean;
+}): LaunchpadAppRow[] {
+  const conditions: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (options?.kind && options.kind !== 'all') {
+    conditions.push('kind = ?');
+    params.push(options.kind);
+  }
+  if (options?.category) {
+    conditions.push('category = ?');
+    params.push(options.category);
+  }
+  if (!options?.includeHidden) {
+    conditions.push('hidden = 0');
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  return db
+    .prepare(`SELECT * FROM launchpad_apps ${whereClause} ORDER BY name ASC`)
+    .all(...params) as LaunchpadAppRow[];
+}
+
+export function getLaunchpadApp(id: string): LaunchpadAppRow | null {
+  return db.prepare('SELECT * FROM launchpad_apps WHERE id = ?').get(id) as LaunchpadAppRow | null;
+}
+
+export function getLaunchpadAppByPath(path: string): LaunchpadAppRow | null {
+  return db.prepare('SELECT * FROM launchpad_apps WHERE path = ?').get(path) as LaunchpadAppRow | null;
+}
+
+export function upsertLaunchpadApp(app: Partial<LaunchpadItem> & { id: string; name: string; kind: string; path: string; parentId?: string | null }): void {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO launchpad_apps (
+      id, name, name_zh, kind, path, bundle_id, icon, category, tags, children,
+      launch_command, launch_args, working_directory, env, usage_count,
+      last_used_at, installed_at, description, version, developer,
+      homepage, repository, store_id, status, update_available,
+      installed_version, latest_version, hidden, pinned, page_index, grid_index, parent_id,
+      terminal_mode, pre_launch_script, post_launch_actions, dependencies, auto_detect,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      name_zh = COALESCE(excluded.name_zh, name_zh),
+      icon = COALESCE(excluded.icon, icon),
+      category = COALESCE(excluded.category, category),
+      launch_command = COALESCE(excluded.launch_command, launch_command),
+      working_directory = COALESCE(excluded.working_directory, working_directory),
+      version = COALESCE(excluded.version, version),
+      description = COALESCE(excluded.description, description),
+      parent_id = COALESCE(excluded.parent_id, parent_id),
+      terminal_mode = COALESCE(excluded.terminal_mode, terminal_mode),
+      pre_launch_script = COALESCE(excluded.pre_launch_script, pre_launch_script),
+      post_launch_actions = COALESCE(excluded.post_launch_actions, post_launch_actions),
+      dependencies = COALESCE(excluded.dependencies, dependencies),
+      updated_at = excluded.updated_at
+  `).run(
+    app.id,
+    app.name,
+    app.nameZh ?? null,
+    app.kind,
+    app.path,
+    app.bundleId ?? null,
+    app.icon ?? null,
+    app.category ?? null,
+    JSON.stringify(app.tags ?? []),
+    app.children ? JSON.stringify(app.children) : null,
+    app.launchCommand ?? null,
+    app.launchArgs ? JSON.stringify(app.launchArgs) : null,
+    app.workingDirectory ?? null,
+    app.env ? JSON.stringify(app.env) : null,
+    app.usageCount ?? 0,
+    app.lastUsedAt ?? null,
+    app.installedAt ?? now,
+    app.description ?? null,
+    app.version ?? null,
+    app.developer ?? null,
+    app.homepage ?? null,
+    app.repository ?? null,
+    app.storeId ?? null,
+    app.status ?? 'installed',
+    app.updateAvailable ? 1 : 0,
+    app.installedVersion ?? null,
+    app.latestVersion ?? null,
+    app.hidden ? 1 : 0,
+    app.pinned ? 1 : 0,
+    app.pageIndex ?? 0,
+    app.gridIndex ?? 0,
+    app.parentId ?? null,
+    app.terminalMode ?? 'new-window',
+    app.preLaunchScript ?? null,
+    app.postLaunchActions ? JSON.stringify(app.postLaunchActions) : null,
+    app.dependencies ? JSON.stringify(app.dependencies) : null,
+    app.autoDetect ? 1 : 0,
+    now,
+    now,
+  );
+}
+
+export function updateLaunchpadApp(id: string, updates: Partial<LaunchpadItem>): void {
+  const setClauses: string[] = [];
+  const values: (string | number | null)[] = [];
+
+  if (updates.name !== undefined) {
+    setClauses.push('name = ?');
+    values.push(updates.name);
+  }
+  if (updates.nameZh !== undefined) {
+    setClauses.push('name_zh = ?');
+    values.push(updates.nameZh);
+  }
+  if (updates.icon !== undefined) {
+    setClauses.push('icon = ?');
+    values.push(updates.icon);
+  }
+  if (updates.category !== undefined) {
+    setClauses.push('category = ?');
+    values.push(updates.category);
+  }
+  if (updates.hidden !== undefined) {
+    setClauses.push('hidden = ?');
+    values.push(updates.hidden ? 1 : 0);
+  }
+  if (updates.pinned !== undefined) {
+    setClauses.push('pinned = ?');
+    values.push(updates.pinned ? 1 : 0);
+  }
+  if (updates.usageCount !== undefined) {
+    setClauses.push('usage_count = ?');
+    values.push(updates.usageCount);
+  }
+  if (updates.lastUsedAt !== undefined) {
+    setClauses.push('last_used_at = ?');
+    values.push(updates.lastUsedAt);
+  }
+  if (updates.pageIndex !== undefined) {
+    setClauses.push('page_index = ?');
+    values.push(updates.pageIndex);
+  }
+  if (updates.gridIndex !== undefined) {
+    setClauses.push('grid_index = ?');
+    values.push(updates.gridIndex);
+  }
+  if ('parentId' in updates) {
+    setClauses.push('parent_id = ?');
+    values.push((updates as { parentId: string | null }).parentId ?? null);
+  }
+
+  // Smart launch fields
+  if (updates.launchCommand !== undefined) {
+    setClauses.push('launch_command = ?');
+    values.push(updates.launchCommand);
+  }
+  if (updates.workingDirectory !== undefined) {
+    setClauses.push('working_directory = ?');
+    values.push(updates.workingDirectory);
+  }
+  if (updates.terminalMode !== undefined) {
+    setClauses.push('terminal_mode = ?');
+    values.push(updates.terminalMode);
+  }
+  if (updates.preLaunchScript !== undefined) {
+    setClauses.push('pre_launch_script = ?');
+    values.push(updates.preLaunchScript);
+  }
+  if (updates.postLaunchActions !== undefined) {
+    setClauses.push('post_launch_actions = ?');
+    values.push(JSON.stringify(updates.postLaunchActions));
+  }
+  if (updates.dependencies !== undefined) {
+    setClauses.push('dependencies = ?');
+    values.push(JSON.stringify(updates.dependencies));
+  }
+
+  if (setClauses.length === 0) return;
+
+  setClauses.push('updated_at = ?');
+  values.push(new Date().toISOString());
+  values.push(id);
+
+  db.prepare(`UPDATE launchpad_apps SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function deleteLaunchpadApp(id: string): void {
+  db.prepare('DELETE FROM launchpad_apps WHERE id = ?').run(id);
+}
+
+export function incrementLaunchpadAppUsage(id: string): void {
+  db.prepare(`
+    UPDATE launchpad_apps
+    SET usage_count = usage_count + 1, last_used_at = ?, updated_at = ?
+    WHERE id = ?
+  `).run(new Date().toISOString(), new Date().toISOString(), id);
+}
+
+export function searchLaunchpadApps(query: string, limit = 50): LaunchpadAppRow[] {
+  const searchTerm = `%${query}%`;
+  return db
+    .prepare(`
+      SELECT * FROM launchpad_apps
+      WHERE hidden = 0 AND (name LIKE ? OR name_zh LIKE ? OR description LIKE ?)
+      ORDER BY usage_count DESC, name ASC
+      LIMIT ?
+    `)
+    .all(searchTerm, searchTerm, searchTerm, limit) as LaunchpadAppRow[];
+}
+
+export function getLaunchpadLayout(): LaunchpadLayout {
+  const row = db.prepare('SELECT * FROM launchpad_layout WHERE id = ?').get('default') as {
+    columns: number;
+    rows: number;
+    icon_size: number;
+    show_labels: number;
+    animation_enabled: number;
+  } | undefined;
+
+  return {
+    columns: row?.columns ?? 7,
+    rows: row?.rows ?? 5,
+    iconSize: row?.icon_size ?? 64,
+    showLabels: row?.show_labels !== 0,
+    animationEnabled: row?.animation_enabled !== 0,
+  };
+}
+
+export function updateLaunchpadLayout(layout: Partial<LaunchpadLayout>): void {
+  const current = getLaunchpadLayout();
+  const updated = { ...current, ...layout };
+
+  db.prepare(`
+    INSERT OR REPLACE INTO launchpad_layout (id, columns, rows, icon_size, show_labels, animation_enabled)
+    VALUES ('default', ?, ?, ?, ?, ?)
+  `).run(
+    updated.columns,
+    updated.rows,
+    updated.iconSize,
+    updated.showLabels ? 1 : 0,
+    updated.animationEnabled ? 1 : 0,
+  );
+}
+
+export function getLaunchpadCategories(): AppCategory[] {
+  return db
+    .prepare('SELECT * FROM launchpad_categories ORDER BY name ASC')
+    .all() as AppCategory[];
+}
+
+export function upsertLaunchpadCategory(category: AppCategory): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO launchpad_categories (id, name, name_zh, icon, type, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    category.id,
+    category.name,
+    category.nameZh ?? null,
+    category.icon,
+    category.type,
+    new Date().toISOString(),
+  );
+}
+
+export function getLaunchpadScanDirs(): Array<{ path: string; enabled: boolean; watch: boolean }> {
+  return db
+    .prepare('SELECT path, enabled, watch FROM launchpad_scan_dirs WHERE enabled = 1')
+    .all() as Array<{ path: string; enabled: boolean; watch: boolean }>;
+}
+
+export function upsertLaunchpadScanDir(path: string, watch = true): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO launchpad_scan_dirs (path, enabled, watch, created_at)
+    VALUES (?, 1, ?, ?)
+  `).run(path, watch ? 1 : 0, new Date().toISOString());
+}
+
+export function deleteLaunchpadScanDir(path: string): void {
+  db.prepare('DELETE FROM launchpad_scan_dirs WHERE path = ?').run(path);
 }

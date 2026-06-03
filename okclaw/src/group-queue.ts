@@ -23,6 +23,10 @@ interface GroupState {
   retryCount: number;
   // Track the conversationId currently being processed
   activeConversationId: string | null;
+  // AbortController for cancelling the running agent
+  abortController?: AbortController;
+  // Cancel function for interrupt() API (alternative to abortController)
+  cancelFn?: () => Promise<void>;
 }
 
 export class GroupQueue {
@@ -81,6 +85,56 @@ export class GroupQueue {
   ): void {
     const state = this.getGroup(groupJid);
     state.activeConversationId = conversationId;
+  }
+
+  /**
+   * Set the AbortController for a running agent.
+   * Used to cancel the agent when stop is requested.
+   */
+  setAbortController(groupJid: string, controller: AbortController): void {
+    const state = this.getGroup(groupJid);
+    state.abortController = controller;
+  }
+
+  /**
+   * Set the cancel function for a running agent (using interrupt() API).
+   * Alternative to AbortController for more graceful cancellation.
+   */
+  setCancelFn(groupJid: string, cancelFn: () => Promise<void>): void {
+    const state = this.getGroup(groupJid);
+    state.cancelFn = cancelFn;
+  }
+
+  /**
+   * Cancel a running agent for a group.
+   * Tries AbortController first, then falls back to cancelFn (interrupt API).
+   * Returns true if cancellation was initiated, false if no agent is running.
+   */
+  cancelAgent(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    if (!state || !state.active) {
+      logger.debug({ groupJid }, 'No active agent to cancel');
+      return false;
+    }
+
+    // Try AbortController first
+    if (state.abortController) {
+      logger.info({ groupJid }, 'Cancelling agent via AbortController');
+      state.abortController.abort();
+      return true;
+    }
+
+    // Fall back to cancelFn (interrupt API)
+    if (state.cancelFn) {
+      logger.info({ groupJid }, 'Cancelling agent via interrupt()');
+      state.cancelFn().catch((err) => {
+        logger.error({ groupJid, err }, 'Error calling cancel function');
+      });
+      return true;
+    }
+
+    logger.warn({ groupJid }, 'No cancellation mechanism available');
+    return false;
   }
 
   setProcessMessagesFn(fn: (groupJid: string) => Promise<boolean>): void {
@@ -176,6 +230,8 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.active = false;
     state.groupFolder = null;
+    state.abortController = undefined;
+    state.cancelFn = undefined;
     this.activeCount--;
     this.drainGroup(groupJid);
   }

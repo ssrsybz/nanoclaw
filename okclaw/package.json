@@ -2,8 +2,9 @@
   "name": "okclaw",
   "version": "2.0.0",
   "description": "Personal Claude assistant. Lightweight, secure, customizable.",
+  "author": "OKClaw Team",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "electron/main.js",
   "scripts": {
     "build": "tsc && cd web && npm run build",
     "start": "node dist/index.js",
@@ -18,12 +19,17 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "electron:dev": "ELECTRON_DEV=true electron .",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:linux": "npm run build && electron-builder --linux",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:win": "npm run build && electron-builder --win"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.150",
     "@larksuiteoapi/node-sdk": "^1.60.0",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "11.10.0",
     "busboy": "^1.6.0",
     "cron-parser": "5.5.0",
@@ -32,7 +38,7 @@
     "pdf-parse": "^2.4.5",
     "ws": "^8.18.0",
     "xlsx": "^0.18.5",
-    "zod": "^3.24.0"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
@@ -42,6 +48,8 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/ws": "^8.5.13",
     "concurrently": "^9.2.1",
+    "electron": "^42.1.0",
+    "electron-builder": "^26.8.1",
     "eslint": "^9.35.0",
     "eslint-plugin-no-catch-all": "^1.1.0",
     "globals": "^15.12.0",
@@ -54,5 +62,101 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "build": {
+    "appId": "com.okclaw.app",
+    "productName": "OKClaw",
+    "files": [
+      "dist/**/*",
+      "web/dist/**/*",
+      "electron/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!node_modules/*/{test,tests,example,examples,doc,docs}/**",
+      "!node_modules/.cache/**",
+      "!node_modules/@types/**"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "extraResources": [
+      {
+        "from": "node_modules",
+        "to": "node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "dist",
+        "to": "dist"
+      },
+      {
+        "from": "web/dist",
+        "to": "web/dist"
+      }
+    ],
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "tar.gz",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Utility",
+      "maintainer": "OKClaw Team",
+      "desktop": {
+        "entry": {
+          "Name": "OKClaw",
+          "Comment": "Personal Claude Assistant",
+          "Categories": "Utility;Development"
+        }
+      }
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    }
   }
 }

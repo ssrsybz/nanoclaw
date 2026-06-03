@@ -5,9 +5,11 @@ import AssistantChat from './components/AssistantChat';
 import SkillsPanel from './components/SkillsPanel';
 import QuestionDialog from './components/QuestionDialog';
 import RemoteControlPanel from './components/RemoteControlPanel';
+import LaunchpadView from './components/LaunchpadView';
 
 export default function App() {
   const [showRemoteControl, setShowRemoteControl] = useState(false);
+  const [showLaunchpad, setShowLaunchpad] = useState(false);
   const {
     fetchWorkspaces,
     switchWorkspace,
@@ -370,6 +372,16 @@ export default function App() {
       <SkillsPanel />
       <QuestionDialog />
 
+      {/* Launchpad Floating Button */}
+      <button
+        onClick={() => setShowLaunchpad(true)}
+        className="fixed bottom-4 left-4 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-lg shadow-lg z-40 flex items-center gap-2"
+        title="启动台"
+      >
+        <i className="fas fa-th-large" />
+        <span className="text-sm">启动台</span>
+      </button>
+
       {/* Remote Control Floating Button */}
       <button
         onClick={() => setShowRemoteControl(true)}
@@ -378,6 +390,11 @@ export default function App() {
       >
         📱
       </button>
+
+      {/* Launchpad View */}
+      {showLaunchpad && (
+        <LaunchpadView onClose={() => setShowLaunchpad(false)} />
+      )}
 
       {/* Remote Control Panel */}
       {showRemoteControl && (

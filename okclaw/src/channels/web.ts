@@ -57,6 +57,8 @@ export interface WebChannelOpts {
   registerGroup?: (jid: string, group: RegisteredGroup) => void;
   // Get the active conversationId for a workspace (returns null if no agent running)
   getActiveConversationId?: (workspaceId: string) => string | null;
+  // Cancel the running agent for a workspace
+  onCancel?: (chatJid: string) => boolean;
 }
 
 export class WebChannel implements Channel {
@@ -1402,6 +1404,25 @@ export class WebChannel implements Channel {
           },
           'Question response received from frontend',
         );
+      }
+      return;
+    }
+
+    // Handle stop message - cancel the running agent
+    if (msg.type === 'stop') {
+      const workspaceId = msg.workspaceId || this.clientWorkspaces.get(ws);
+      if (workspaceId && this.opts.onCancel) {
+        const chatJid = getWebChatJid(workspaceId);
+        const cancelled = this.opts.onCancel(chatJid);
+        logger.info(
+          { workspaceId, chatJid, cancelled },
+          'Stop request received from frontend',
+        );
+        // Send confirmation to client
+        this.sendToClient(ws, {
+          type: 'stopped',
+          workspaceId,
+        });
       }
       return;
     }

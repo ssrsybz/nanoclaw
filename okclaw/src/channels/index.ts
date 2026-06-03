@@ -9,6 +9,9 @@ import './feishu.js';
 
 // gmail
 
+// launchpad
+import './launchpad.js';
+
 // slack
 
 // telegram

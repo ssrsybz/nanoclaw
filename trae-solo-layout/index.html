@@ -1,0 +1,1590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent 工作台 - Trae Solo 风格</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航栏 -->
+        <header class="top-nav">
+            <div class="nav-left">
+                <div class="logo">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                    <span>Agent Studio</span>
+                </div>
+                <div class="mode-switcher">
+                    <button class="mode-btn active" data-mode="mtc">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                        MTC 模式
+                    </button>
+                    <button class="mode-btn" data-mode="code">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="16 18 22 12 16 6"/>
+                            <polyline points="8 6 2 12 8 18"/>
+                        </svg>
+                        Code 模式
+                    </button>
+                </div>
+            </div>
+            <div class="nav-center">
+                <div class="current-task">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    当前任务: <span id="task-name">未选择任务</span>
+                </div>
+            </div>
+            <div class="nav-right">
+                <button class="icon-btn" title="设置">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                </button>
+                <button class="icon-btn" title="技能市场">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <path d="M16 10a4 4 0 0 1-8 0"/>
+                    </svg>
+                </button>
+                <button class="icon-btn" title="用户">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- 主体三栏布局 -->
+        <main class="main-content">
+            <!-- 左侧栏：任务列表 -->
+            <aside class="left-panel" id="leftPanel">
+                <div class="panel-header">
+                    <h3>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="8" y1="6" x2="21" y2="6"/>
+                            <line x1="8" y1="12" x2="21" y2="12"/>
+                            <line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/>
+                            <line x1="3" y1="12" x2="3.01" y2="12"/>
+                            <line x1="3" y1="18" x2="3.01" y2="18"/>
+                        </svg>
+                        任务列表
+                    </h3>
+                    <button class="btn-primary" id="newTaskBtn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        新建任务
+                    </button>
+                </div>
+                
+                <div class="task-list" id="taskList">
+                    <!-- 任务项示例 - 运行中 -->
+                    <div class="task-item active" data-task-id="1">
+                        <div class="task-icon task-running">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                            </svg>
+                        </div>
+                        <div class="task-info">
+                            <div class="task-title">生成调研报告</div>
+                            <div class="task-meta">
+                                <span class="task-status status-running">运行中</span>
+                                <span class="task-time">约 5 分钟</span>
+                            </div>
+                        </div>
+                        <div class="task-progress-ring">
+                            <svg width="32" height="32" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="15" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+                                <circle cx="18" cy="18" r="15" fill="none" stroke="#8b5cf6" stroke-width="3" 
+                                    stroke-dasharray="100" stroke-dashoffset="35" transform="rotate(-90 18 18)"/>
+                            </svg>
+                            <span>65%</span>
+                        </div>
+                    </div>
+
+                    <!-- 任务项示例 - 已完成 -->
+                    <div class="task-item" data-task-id="2">
+                        <div class="task-icon task-completed">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                        </div>
+                        <div class="task-info">
+                            <div class="task-title">创建前端页面</div>
+                            <div class="task-meta">
+                                <span class="task-status status-completed">已完成</span>
+                                <span class="task-time">刚刚</span>
+                            </div>
+                        </div>
+                        <div class="task-progress-ring">
+                            <svg width="32" height="32" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="15" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+                                <circle cx="18" cy="18" r="15" fill="none" stroke="#10b981" stroke-width="3" 
+                                    stroke-dasharray="100" stroke-dashoffset="0" transform="rotate(-90 18 18)"/>
+                            </svg>
+                            <span>✓</span>
+                        </div>
+                    </div>
+
+                    <!-- 任务项示例 - 等待中 -->
+                    <div class="task-item" data-task-id="3">
+                        <div class="task-icon task-pending">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                        </div>
+                        <div class="task-info">
+                            <div class="task-title">数据分析任务</div>
+                            <div class="task-meta">
+                                <span class="task-status status-pending">等待中</span>
+                                <span class="task-time">排队中</span>
+                            </div>
+                        </div>
+                        <div class="task-progress-ring">
+                            <svg width="32" height="32" viewBox="0 0 36 36">
+                                <circle cx="18" cy="18" r="15" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+                            </svg>
+                            <span>-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 项目管理器 -->
+                <div class="project-manager" id="projectManager">
+                    <!-- 项目选择器头部 -->
+                    <div class="pm-header">
+                        <div class="pm-selector" id="projectSelector">
+                            <div class="pm-current-project">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                <span id="currentProjectName">okclaw总项目</span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="chevron-icon">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            </div>
+                            <!-- 项目下拉列表 -->
+                            <div class="pm-dropdown" id="projectDropdown">
+                                <div class="pm-search">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="11" cy="11" r="8"/>
+                                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                    </svg>
+                                    <input type="text" placeholder="搜索项目..." id="projectSearchInput">
+                                </div>
+                                <div class="pm-list" id="projectList">
+                                    <div class="pm-item active" data-path="/Users/frank/Downloads/3月工作/编程/okclaw总项目">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                        </svg>
+                                        <span>okclaw总项目</span>
+                                        <span class="pm-item-path">~/Downloads/3月工作/编程</span>
+                                    </div>
+                                    <div class="pm-item" data-path="/Users/frank/Projects/web-app">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                        </svg>
+                                        <span>web-app</span>
+                                        <span class="pm-item-path">~/Projects</span>
+                                    </div>
+                                    <div class="pm-item" data-path="/Users/frank/Projects/api-server">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                        </svg>
+                                        <span>api-server</span>
+                                        <span class="pm-item-path">~/Projects</span>
+                                    </div>
+                                </div>
+                                <div class="pm-footer-actions">
+                                    <button class="pm-action-btn" id="openFolderBtn">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                        </svg>
+                                        打开文件夹
+                                    </button>
+                                    <button class="pm-action-btn" id="addWorkspaceBtn">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <line x1="12" y1="5" x2="12" y2="19"/>
+                                            <line x1="5" y1="12" x2="19" y2="12"/>
+                                        </svg>
+                                        添加工作区
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 工具栏按钮 -->
+                        <div class="pm-toolbar">
+                            <button class="pm-tool-btn" title="新建文件" id="newFileBtn">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="12" y1="18" x2="12" y2="12"/>
+                                    <line x1="9" y1="15" x2="15" y2="15"/>
+                                </svg>
+                            </button>
+                            <button class="pm-tool-btn" title="新建文件夹" id="newFolderBtn">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                </svg>
+                            </button>
+                            <button class="pm-tool-btn" title="刷新" id="refreshTreeBtn">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"/>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                                </svg>
+                            </button>
+                            <button class="pm-tool-btn" title="全部折叠" id="collapseAllBtn">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="4 14 10 14 10 20"/>
+                                    <polyline points="20 10 14 10 14 4"/>
+                                    <line x1="14" y1="10" x2="21" y2="3"/>
+                                    <line x1="3" y1="21" x2="10" y2="14"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 文件树区域 -->
+                    <div class="file-tree-container" id="fileTreeContainer">
+                        <div class="file-tree" id="fileTree">
+                            <!-- 根节点：trae-solo-layout -->
+                            <div class="tree-item tree-folder expanded" data-path="/Users/frank/Downloads/3月工作/编程/okclaw总项目/trae-solo-layout" data-type="folder">
+                                <div class="tree-item-content">
+                                    <div class="tree-chevron">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="9 18 15 12 9 6"/>
+                                        </svg>
+                                    </div>
+                                    <div class="tree-icon folder-icon open">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                        </svg>
+                                    </div>
+                                    <span class="tree-label">trae-solo-layout</span>
+                                </div>
+                                <div class="tree-children">
+                                    <!-- 子文件/文件夹 -->
+                                    <div class="tree-item tree-file" data-path="index.html" data-type="file" data-ext="html">
+                                        <div class="tree-item-content">
+                                            <div class="tree-placeholder"></div>
+                                            <div class="tree-icon file-icon html-icon">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="16 18 22 12 16 6"/>
+                                                    <polyline points="8 6 2 12 8 18"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">index.html</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-item tree-file" data-path="styles.css" data-type="file" data-ext="css">
+                                        <div class="tree-item-content">
+                                            <div class="tree-placeholder"></div>
+                                            <div class="tree-icon file-icon css-icon">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <circle cx="12" cy="12" r="10"/>
+                                                    <path d="M8 14s1.5 2 4 2 4-2 4-2"/>
+                                                    <line x1="9" y1="9" x2="9.01" y2="9"/>
+                                                    <line x1="15" y1="9" x2="15.01" y2="9"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">styles.css</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-item tree-file" data-path="app.js" data-type="file" data-ext="js">
+                                        <div class="tree-item-content">
+                                            <div class="tree-placeholder"></div>
+                                            <div class="tree-icon file-icon js-icon">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                                    <line x1="7" y1="8" x2="17" y2="8"/>
+                                                    <line x1="7" y1="12" x2="13" y2="12"/>
+                                                    <line x1="7" y1="16" x2="11" y2="16"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">app.js</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- node_modules 文件夹（可折叠） -->
+                                    <div class="tree-item tree-folder collapsed" data-path="node_modules" data-type="folder">
+                                        <div class="tree-item-content">
+                                            <div class="tree-chevron">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="9 18 15 12 9 6"/>
+                                                </svg>
+                                            </div>
+                                            <div class="tree-icon folder-icon closed">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">node_modules</span>
+                                            <span class="tree-badge">128</span>
+                                        </div>
+                                        <div class="tree-children" style="display: none;">
+                                            <!-- 动态加载内容 -->
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- src 文件夹 -->
+                                    <div class="tree-item tree-folder collapsed" data-path="src" data-type="folder">
+                                        <div class="tree-item-content">
+                                            <div class="tree-chevron">
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <polyline points="9 18 15 12 9 6"/>
+                                                </svg>
+                                            </div>
+                                            <div class="tree-icon folder-icon closed">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">src</span>
+                                        </div>
+                                        <div class="tree-children" style="display: none;">
+                                            <div class="tree-item tree-file" data-path="src/main.js" data-type="file" data-ext="js">
+                                                <div class="tree-item-content">
+                                                    <div class="tree-placeholder"></div>
+                                                    <div class="tree-icon file-icon js-icon">
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                                            <line x1="7" y1="8" x2="17" y2="8"/>
+                                                            <line x1="7" y1="12" x2="13" y2="12"/>
+                                                            <line x1="7" y1="16" x2="11" y2="16"/>
+                                                        </svg>
+                                                    </div>
+                                                    <span class="tree-label">main.js</span>
+                                                </div>
+                                            </div>
+                                            <div class="tree-item tree-file" data-path="src/utils.js" data-type="file" data-ext="js">
+                                                <div class="tree-item-content">
+                                                    <div class="tree-placeholder"></div>
+                                                    <div class="tree-icon file-icon js-icon">
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                                            <line x1="7" y1="8" x2="17" y2="8"/>
+                                                            <line x1="7" y1="12" x2="13" y2="12"/>
+                                                            <line x1="7" y1="16" x2="11" y2="16"/>
+                                                        </svg>
+                                                    </div>
+                                                    <span class="tree-label">utils.js</span>
+                                                </div>
+                                            </div>
+                                            <div class="tree-item tree-folder collapsed" data-path="src/components" data-type="folder">
+                                                <div class="tree-item-content">
+                                                    <div class="tree-chevron">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <polyline points="9 18 15 12 9 6"/>
+                                                        </svg>
+                                                    </div>
+                                                    <div class="tree-icon folder-icon closed">
+                                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                                        </svg>
+                                                    </div>
+                                                    <span class="tree-label">components</span>
+                                                </div>
+                                                <div class="tree-children" style="display: none;"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- 配置文件 -->
+                                    <div class="tree-item tree-file" data-path=".gitignore" data-type="file" data-ext="gitignore">
+                                        <div class="tree-item-content">
+                                            <div class="tree-placeholder"></div>
+                                            <div class="tree-icon file-icon config-icon">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <circle cx="12" cy="12" r="3"/>
+                                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2.83 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">.gitignore</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-item tree-file" data-path="package.json" data-type="file" data-ext="json">
+                                        <div class="tree-item-content">
+                                            <div class="tree-placeholder"></div>
+                                            <div class="tree-icon file-icon json-icon">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                                    <polyline points="14 2 14 8 20 8"/>
+                                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">package.json</span>
+                                        </div>
+                                    </div>
+                                    <div class="tree-item tree-file" data-path="README.md" data-type="file" data-ext="md">
+                                        <div class="tree-item-content">
+                                            <div class="tree-placeholder"></div>
+                                            <div class="tree-icon file-icon md-icon">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                                    <polyline points="14 2 14 8 20 8"/>
+                                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                                    <polyline points="10 9 9 9 8 9"/>
+                                                </svg>
+                                            </div>
+                                            <span class="tree-label">README.md</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 面包屑导航 -->
+                    <div class="breadcrumb-nav" id="breadcrumbNav">
+                        <div class="breadcrumb-items">
+                            <span class="breadcrumb-item root" data-path="/">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                    <polyline points="9 22 9 12 15 12 15 22"/>
+                                </svg>
+                            </span>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep">
+                                <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                            <span class="breadcrumb-item" data-path="3月工作">3月工作</span>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep">
+                                <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                            <span class="breadcrumb-item" data-path="编程">编程</span>
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep">
+                                <polyline points="9 18 15 12 9 6"/>
+                            </svg>
+                            <span class="breadcrumb-item active" data-path="okclaw总项目">okclaw总项目</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 中间栏：对话窗口 -->
+            <section class="center-panel">
+                <!-- 对话消息区 -->
+                <div class="chat-messages" id="chatMessages">
+                    <!-- 用户消息 -->
+                    <div class="message message-user">
+                        <div class="message-avatar">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                                <circle cx="12" cy="7" r="4"/>
+                            </svg>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-text">帮我调研一下 Harness Engineering，输出一份学习报告</div>
+                            <div class="message-actions">
+                                <button class="msg-action-btn" title="复制">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                    </svg>
+                                </button>
+                                <span class="message-time">10:30</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI 思考过程 -->
+                    <div class="message message-ai">
+                        <div class="message-avatar ai-avatar">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                        </div>
+                        <div class="message-content">
+                            <div class="ai-thinking">
+                                <div class="thinking-header">
+                                    <div class="thinking-icon">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                        </svg>
+                                    </div>
+                                    <span class="thinking-text">正在思考...</span>
+                                    <div class="thinking-spinner"></div>
+                                </div>
+                                <div class="thinking-steps">
+                                    <div class="step completed">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="20 6 9 17 4 12"/>
+                                        </svg>
+                                        理解任务需求
+                                    </div>
+                                    <div class="step completed">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polyline points="20 6 9 17 4 12"/>
+                                        </svg>
+                                        拆解任务步骤
+                                    </div>
+                                    <div class="step active">
+                                        <div class="step-spinner"></div>
+                                        搜索相关信息
+                                    </div>
+                                    <div class="step pending">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                        </svg>
+                                        整理分析结果
+                                    </div>
+                                    <div class="step pending">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <circle cx="12" cy="12" r="10"/>
+                                        </svg>
+                                        生成报告文档
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI 回复消息 -->
+                    <div class="message message-ai">
+                        <div class="message-avatar ai-avatar">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-text">
+                                <p>好的，我已经开始调研 Harness Engineering。以下是我的执行计划：</p>
+                                <ol class="plan-list">
+                                    <li>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                            <polyline points="14 2 14 8 20 8"/>
+                                        </svg>
+                                        搜索 Harness 官方文档
+                                    </li>
+                                    <li>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                                            <circle cx="9" cy="7" r="4"/>
+                                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                                        </svg>
+                                        收集社区最佳实践
+                                    </li>
+                                    <li>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+                                            <polyline points="2 17 12 22 22 17"/>
+                                            <polyline points="2 12 12 17 22 12"/>
+                                        </svg>
+                                        整理核心概念
+                                    </li>
+                                    <li>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                            <polyline points="14 2 14 8 20 8"/>
+                                            <line x1="16" y1="13" x2="8" y2="13"/>
+                                            <line x1="16" y1="17" x2="8" y2="17"/>
+                                        </svg>
+                                        生成 Word 报告
+                                    </li>
+                                </ol>
+                            </div>
+                            <div class="message-actions">
+                                <button class="msg-action-btn" title="复制">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                    </svg>
+                                </button>
+                                <button class="msg-action-btn" title="重新生成">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="23 4 23 10 17 10"/>
+                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                                    </svg>
+                                </button>
+                                <span class="message-time">10:31</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 输入区域 -->
+                <div class="chat-input-area">
+                    <div class="input-toolbar">
+                        <button class="toolbar-btn" title="上传文件">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                            </svg>
+                        </button>
+                        <button class="toolbar-btn" title="截图">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                <circle cx="8.5" cy="8.5" r="1.5"/>
+                                <polyline points="21 15 16 10 5 21"/>
+                            </svg>
+                        </button>
+                        <button class="toolbar-btn" title="语音输入">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </svg>
+                        </button>
+                        <button class="toolbar-btn" title="Plan 模式">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                                <polyline points="10 9 9 9 8 9"/>
+                            </svg>
+                        </button>
+                        <div class="toolbar-divider"></div>
+                        <button class="toolbar-btn" title="MCP 工具">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="3"/>
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="messageInput" 
+                            placeholder="输入你的任务需求或问题... (Enter 发送, Shift+Enter 换行)"
+                            rows="3"
+                        ></textarea>
+                    </div>
+                    <div class="input-actions">
+                        <div class="model-selector">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                            <select id="modelSelect">
+                                <option>Auto (推荐)</option>
+                                <option>Claude 4 Sonnet</option>
+                                <option>GPT-4o</option>
+                                <option>Gemini 2.5 Pro</option>
+                                <option>Kimi K2</option>
+                            </select>
+                        </div>
+                        <button class="btn-send" id="sendBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="22" y1="2" x2="11" y2="13"/>
+                                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                            </svg>
+                            发送
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 右侧栏：Agent 工作台 -->
+            <aside class="right-panel" id="rightPanel">
+                <div class="panel-tabs">
+                    <button class="tab-btn active" data-tab="files">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        文件
+                    </button>
+                    <button class="tab-btn" data-tab="stats">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="20" x2="18" y2="10"/>
+                            <line x1="12" y1="20" x2="12" y2="4"/>
+                            <line x1="6" y1="20" x2="6" y2="14"/>
+                        </svg>
+                        统计
+                    </button>
+                    <button class="tab-btn" data-tab="plan">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/>
+                            <line x1="16" y1="17" x2="8" y2="17"/>
+                        </svg>
+                        计划
+                    </button>
+                    <button class="tab-btn" data-tab="tools">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        工具
+                    </button>
+                </div>
+
+                <!-- 待办事项面板 -->
+                <div class="tab-content active" id="todoPanel">
+                    <div class="panel-header">
+                        <h4>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                            </svg>
+                            任务进度
+                        </h4>
+                        <span class="progress-badge">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                <polyline points="22 4 12 14.01 9 11.01"/>
+                            </svg>
+                            3/5 完成
+                        </span>
+                    </div>
+                    <div class="todo-list">
+                        <div class="todo-item completed">
+                            <div class="todo-checkbox checked">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </div>
+                            <span>理解任务需求</span>
+                            <span class="todo-time">2分钟前</span>
+                        </div>
+                        <div class="todo-item completed">
+                            <div class="todo-checkbox checked">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </div>
+                            <span>搜索 Harness 文档</span>
+                            <span class="todo-time">1分钟前</span>
+                        </div>
+                        <div class="todo-item completed">
+                            <div class="todo-checkbox checked">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </div>
+                            <span>收集社区资料</span>
+                            <span class="todo-time">刚刚</span>
+                        </div>
+                        <div class="todo-item active">
+                            <div class="todo-checkbox active-state">
+                                <div class="checkbox-spinner"></div>
+                            </div>
+                            <span>整理分析结果</span>
+                            <span class="todo-status-badge status-running">进行中</span>
+                        </div>
+                        <div class="todo-item">
+                            <div class="todo-checkbox"></div>
+                            <span>生成报告文档</span>
+                            <span class="todo-time">待处理</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 产出面板 -->
+                <div class="tab-content" id="artifactsPanel">
+                    <div class="panel-header">
+                        <h4>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                            </svg>
+                            任务产物
+                        </h4>
+                        <button class="btn-small">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M23 4v6h-6"/>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                    <div class="artifacts-list">
+                        <div class="artifact-item">
+                            <div class="artifact-icon doc-icon">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                    <polyline points="10 9 9 9 8 9"/>
+                                </svg>
+                            </div>
+                            <div class="artifact-info">
+                                <div class="artifact-name">调研报告.docx</div>
+                                <div class="artifact-meta">
+                                    <span>2.3 MB</span>
+                                    <span class="meta-dot">·</span>
+                                    <span>刚刚</span>
+                                </div>
+                            </div>
+                            <div class="artifact-actions">
+                                <button class="artifact-btn" title="预览">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                </button>
+                                <button class="artifact-btn" title="下载">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="7 10 12 15 17 10"/>
+                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="artifact-item">
+                            <div class="artifact-icon excel-icon">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                    <line x1="3" y1="9" x2="21" y2="9"/>
+                                    <line x1="3" y1="15" x2="21" y2="15"/>
+                                    <line x1="9" y1="3" x2="9" y2="21"/>
+                                    <line x1="15" y1="3" x2="15" y2="21"/>
+                                </svg>
+                            </div>
+                            <div class="artifact-info">
+                                <div class="artifact-name">数据分析.xlsx</div>
+                                <div class="artifact-meta">
+                                    <span>1.5 MB</span>
+                                    <span class="meta-dot">·</span>
+                                    <span>5分钟前</span>
+                                </div>
+                            </div>
+                            <div class="artifact-actions">
+                                <button class="artifact-btn" title="预览">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                </button>
+                                <button class="artifact-btn" title="下载">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                        <polyline points="7 10 12 15 17 10"/>
+                                        <line x1="12" y1="15" x2="12" y2="3"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 参考信息面板 -->
+                <div class="tab-content" id="referencesPanel">
+                    <div class="panel-header">
+                        <h4>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="2" y1="12" x2="22" y2="12"/>
+                                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                            </svg>
+                            参考信息
+                        </h4>
+                    </div>
+                    <div class="references-list">
+                        <div class="reference-item">
+                            <div class="reference-type">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <line x1="2" y1="12" x2="22" y2="12"/>
+                                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                                </svg>
+                                网页
+                            </div>
+                            <div class="reference-title">Harness 官方文档</div>
+                            <div class="reference-url">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                </svg>
+                                developer.harness.io/docs/...
+                            </div>
+                        </div>
+                        <div class="reference-item">
+                            <div class="reference-type article-type">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                </svg>
+                                文章
+                            </div>
+                            <div class="reference-title">Engineering Best Practices</div>
+                            <div class="reference-url">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                </svg>
+                                blog.harness.io/engineering/...
+                            </div>
+                        </div>
+                        <div class="reference-item">
+                            <div class="reference-type code-type">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="16 18 22 12 16 6"/>
+                                    <polyline points="8 6 2 12 8 18"/>
+                                </svg>
+                                代码
+                            </div>
+                            <div class="reference-title">示例项目仓库</div>
+                            <div class="reference-url">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                </svg>
+                                github.com/harness/examples
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 技能面板 -->
+                <div class="tab-content" id="skillsPanel">
+                    <div class="panel-header">
+                        <h4>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                            </svg>
+                            已安装技能
+                        </h4>
+                        <button class="btn-small">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            添加
+                        </button>
+                    </div>
+                    <div class="skills-list">
+                        <div class="skill-item">
+                            <div class="skill-icon chart-skill">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <line x1="18" y1="20" x2="18" y2="10"/>
+                                    <line x1="12" y1="20" x2="12" y2="4"/>
+                                    <line x1="6" y1="20" x2="6" y2="14"/>
+                                </svg>
+                            </div>
+                            <div class="skill-info">
+                                <div class="skill-name">图表生成</div>
+                                <div class="skill-desc">生成数据可视化图表</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked>
+                                <span class="toggle-slider">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="skill-item">
+                            <div class="skill-icon doc-skill">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                    <line x1="16" y1="13" x2="8" y2="13"/>
+                                    <line x1="16" y1="17" x2="8" y2="17"/>
+                                </svg>
+                            </div>
+                            <div class="skill-info">
+                                <div class="skill-name">文档分析</div>
+                                <div class="skill-desc">分析和总结文档内容</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" checked>
+                                <span class="toggle-slider">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                </span>
+                            </label>
+                        </div>
+                        <div class="skill-item">
+                            <div class="skill-icon api-skill">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                                    <polyline points="15 3 21 3 21 9"/>
+                                    <line x1="10" y1="14" x2="21" y2="3"/>
+                                </svg>
+                            </div>
+                            <div class="skill-info">
+                                <div class="skill-name">API 集成</div>
+                                <div class="skill-desc">连接外部 API 服务</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox">
+                                <span class="toggle-slider">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- 右键上下文菜单 -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" data-action="newFile">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <line x1="9" y1="15" x2="15" y2="15"/>
+            </svg>
+            新建文件
+            <span class="context-shortcut">⌘N</span>
+        </div>
+        <div class="context-menu-item" data-action="newFolder">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+            新建文件夹
+            <span class="context-shortcut">⌘⇧N</span>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-menu-item" data-action="cut">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="3"/>
+                <circle cx="6" cy="18" r="3"/>
+                <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+                <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+                <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+            </svg>
+            剪切
+            <span class="context-shortcut">⌘X</span>
+        </div>
+        <div class="context-menu-item" data-action="copy">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            复制
+            <span class="context-shortcut">⌘C</span>
+        </div>
+        <div class="context-menu-item" data-action="paste">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+            </svg>
+            粘贴
+            <span class="context-shortcut">⌘V</span>
+        </div>
+        <div class="context-divider"></div>
+        <div class="context-menu-item" data-action="rename">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+            </svg>
+            重命名
+            <span class="context-shortcut">F2</span>
+        </div>
+        <div class="context-menu-item danger" data-action="delete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                <line x1="10" y1="11" x2="10" y2="17"/>
+                <line x1="14" y1="11" x2="14" y2="17"/>
+            </svg>
+            删除
+            <span class="context-shortcut">Delete</span>
+        </div>
+    </div>
+
+    <!-- 模态对话框：新建文件/文件夹 -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-dialog">
+            <div class="modal-header">
+                <h3 id="modalTitle">新建文件</h3>
+                <button class="modal-close" id="modalClose">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="itemNameInput">名称：</label>
+                    <input type="text" id="itemNameInput" placeholder="输入名称..." autofocus>
+                </div>
+                <div class="form-group" id="itemTypeGroup">
+                    <label>类型：</label>
+                    <div class="radio-group">
+                        <label class="radio-label">
+                            <input type="radio" name="itemType" value="file" checked>
+                            <span class="radio-custom"></span>
+                            文件
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="itemType" value="folder">
+                            <span class="radio-custom"></span>
+                            文件夹
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary modal-btn" id="modalCancel">取消</button>
+                <button class="btn-primary modal-btn" id="modalConfirm">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 确认删除对话框 -->
+    <div class="confirm-dialog" id="confirmDialog">
+        <div class="confirm-content">
+            <div class="confirm-icon warning">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+            </div>
+            <p id="confirmMessage">确定要删除此项目吗？此操作无法撤销。</p>
+            <div class="confirm-actions">
+                <button class="btn-secondary confirm-btn" id="confirmCancel">取消</button>
+                <button class="btn-danger confirm-btn" id="confirmOk">删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 快速打开对话框 (Ctrl+P) -->
+    <div class="quick-open-overlay" id="quickOpenOverlay">
+        <div class="quick-open-dialog">
+            <div class="quick-open-header">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input type="text" id="quickOpenInput" placeholder="搜索文件... (↑↓导航, Enter打开, Esc关闭)" autofocus>
+                <span class="quick-open-shortcut">⌘P</span>
+            </div>
+            <div class="quick-open-results" id="quickOpenResults">
+                <div class="quick-open-item active" data-path="index.html">
+                    <span class="qo-icon html-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                    </span>
+                    <span class="qo-name">index.html</span>
+                    <span class="qo-path">trae-solo-layout/index.html</span>
+                    <span class="qo-bookmark">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                    </span>
+                </div>
+                <div class="quick-open-item" data-path="styles.css">
+                    <span class="qo-icon css-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                    </span>
+                    <span class="qo-name">styles.css</span>
+                    <span class="qo-path">trae-solo-layout/styles.css</span>
+                </div>
+                <div class="quick-open-item" data-path="app.js">
+                    <span class="qo-icon js-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="13" y2="12"/><line x1="7" y1="16" x2="11" y2="16"/></svg>
+                    </span>
+                    <span class="qo-name">app.js</span>
+                    <span class="qo-path">trae-solo-layout/app.js</span>
+                </div>
+                <div class="quick-open-item" data-path="src/main.js">
+                    <span class="qo-icon js-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="13" y2="12"/><line x1="7" y1="16" x2="11" y2="16"/></svg>
+                    </span>
+                    <span class="qo-name">main.js</span>
+                    <span class="qo-path">src/main.js</span>
+                </div>
+                <div class="quick-open-item" data-path="package.json">
+                    <span class="qo-icon json-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </span>
+                    <span class="qo-name">package.json</span>
+                    <span class="qo-path">package.json</span>
+                </div>
+                <div class="quick-open-item" data-path="README.md">
+                    <span class="qo-icon md-icon">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    </span>
+                    <span class="qo-name">README.md</span>
+                    <span class="qo-path">README.md</span>
+                </div>
+            </div>
+            <div class="quick-open-footer">
+                <span>最近: index.html → styles.css → app.js</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件书签侧边栏 -->
+    <div class="bookmarks-panel" id="bookmarksPanel">
+        <div class="bookmarks-header">
+            <h4>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                </svg>
+                书签
+            </h4>
+            <button class="bm-clear-btn" id="clearBookmarksBtn" title="清除所有书签">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+        <div class="bookmarks-list" id="bookmarksList">
+            <div class="bookmark-item" data-path="index.html">
+                <span class="bm-icon html-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </span>
+                <span class="bm-name">index.html</span>
+                <button class="bm-remove-btn" title="移除书签">×</button>
+            </div>
+            <div class="bookmark-empty" id="bookmarkEmpty" style="display: none;">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                </svg>
+                <p>暂无书签<br><small>按 Ctrl+Shift+B 添加当前文件</small></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- 最近访问历史面板 -->
+    <div class="recent-files-panel" id="recentFilesPanel">
+        <div class="recent-header">
+            <h4>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <polyline points="12 6 12 12 16 14"/>
+                </svg>
+                最近访问
+            </h4>
+            <button class="recent-clear-btn" id="clearRecentBtn" title="清除历史">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+            </button>
+        </div>
+        <div class="recent-list" id="recentList">
+            <div class="recent-item active" data-path="index.html" data-time="刚刚">
+                <span class="recent-icon html-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </span>
+                <div class="recent-info">
+                    <span class="recent-name">index.html</span>
+                    <span class="recent-time">刚刚</span>
+                </div>
+            </div>
+            <div class="recent-item" data-path="styles.css" data-time="2分钟前">
+                <span class="recent-icon css-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+                </span>
+                <div class="recent-info">
+                    <span class="recent-name">styles.css</span>
+                    <span class="recent-time">2分钟前</span>
+                </div>
+            </div>
+            <div class="recent-item" data-path="app.js" data-time="5分钟前">
+                <span class="recent-icon js-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="13" y2="12"/><line x1="7" y1="16" x2="11" y2="16"/></svg>
+                </span>
+                <div class="recent-info">
+                    <span class="recent-name">app.js</span>
+                    <span class="recent-time">5分钟前</span>
+                </div>
+            </div>
+            <div class="recent-item" data-path="README.md" data-time="1小时前">
+                <span class="recent-icon md-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </span>
+                <div class="recent-info">
+                    <span class="recent-name">README.md</span>
+                    <span class="recent-time">1小时前</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 多选操作工具栏 -->
+    <div class="multi-select-toolbar" id="multiSelectToolbar">
+        <div class="ms-toolbar-content">
+            <span class="ms-count">已选择 <strong id="selectedCount">0</strong> 项</span>
+            <div class="ms-toolbar-actions">
+                <button class="ms-action-btn" id="msCopyBtn" title="复制 (Ctrl+C)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    复制
+                </button>
+                <button class="ms-action-btn" id="msCutBtn" title="剪切 (Ctrl+X)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="6" cy="6" r="3"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <line x1="20" y1="4" x2="8.12" y2="15.88"/>
+                        <line x1="14.47" y1="14.48" x2="20" y2="20"/>
+                        <line x1="8.12" y1="8.12" x2="12" y2="12"/>
+                    </svg>
+                    剪切
+                </button>
+                <button class="ms-action-btn danger" id="msDeleteBtn" title="批量删除 (Delete)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                    </svg>
+                    删除
+                </button>
+                <button class="ms-action-btn" id="msBookmarkBtn" title="添加书签 (B)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                        <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    书签
+                </button>
+                <button class="ms-action-btn ms-close-btn" id="msCloseBtn" title="取消选择 (Esc)">✕</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 组件拖拽与吸附系统 ==================== -->
+    
+    <!-- 吸附区域指示器 (Snap Zones) -->
+    <div class="snap-zones-container" id="snapZonesContainer">
+        <!-- 左侧吸附区 -->
+        <div class="snap-zone snap-left" data-dock="left" data-position="left">
+            <div class="snap-indicator">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="18" rx="1"/>
+                    <line x1="6.5" y1="8" x2="6.5" y2="8.01"/>
+                    <line x1="6.5" y1="12" x2="6.5" y2="12.01"/>
+                    <line x1="6.5" y1="16" x2="6.5" y2="16.01"/>
+                </svg>
+                <span>停靠到左侧</span>
+            </div>
+        </div>
+        
+        <!-- 右侧吸附区 -->
+        <div class="snap-zone snap-right" data-dock="right" data-position="right">
+            <div class="snap-indicator">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="14" y="3" width="7" height="18" rx="1"/>
+                    <line x1="17.5" y1="8" x2="17.5" y2="8.01"/>
+                    <line x1="17.5" y1="12" x2="17.5" y2="12.01"/>
+                    <line x1="17.5" y1="16" x2="17.5" y2="16.01"/>
+                </svg>
+                <span>停靠到右侧</span>
+            </div>
+        </div>
+        
+        <!-- 顶部吸附区 -->
+        <div class="snap-zone snap-top" data-dock="top" data-position="top">
+            <div class="snap-indicator">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="7" rx="1"/>
+                </svg>
+                <span>停靠到顶部</span>
+            </div>
+        </div>
+        
+        <!-- 底部吸附区 -->
+        <div class="snap-zone snap-bottom" data-dock="bottom" data-position="bottom">
+            <div class="snap-indicator">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="14" width="18" height="7" rx="1"/>
+                </svg>
+                <span>停靠到底部</span>
+            </div>
+        </div>
+        
+        <!-- 中央浮动区 -->
+        <div class="snap-zone snap-center" data-dock="float" data-position="center">
+            <div class="snap-indicator">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <line x1="9" y1="9" x2="15" y2="15"/>
+                    <line x1="15" y1="9" x2="9" y2="15"/>
+                </svg>
+                <span>自由浮动</span>
+            </div>
+        </div>
+        
+        <!-- 全屏吸附区 -->
+        <div class="snap-zone snap-fullscreen" data-dock="fullscreen" data-position="fullscreen">
+            <div class="snap-indicator">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                </svg>
+                <span>全屏显示</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 停靠预览框 (Dock Preview) -->
+    <div class="dock-preview-overlay" id="dockPreviewOverlay">
+        <div class="dock-preview-box" id="dockPreviewBox"></div>
+    </div>
+
+    <!-- 拖拽中的幽灵元素 (Drag Ghost) -->
+    <div class="drag-ghost" id="dragGhost">
+        <div class="ghost-header">
+            <span class="ghost-title">正在移动...</span>
+            <span class="ghost-size">320 × 240</span>
+        </div>
+        <div class="ghost-content">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M3 9h18M9 21V9"/>
+            </svg>
+        </div>
+    </div>
+
+    <!-- 面板布局管理器工具栏 -->
+    <div class="layout-manager-toolbar" id="layoutManagerToolbar">
+        <div class="lm-header">
+            <h4>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7"/>
+                    <rect x="14" y="3" width="7" height="7"/>
+                    <rect x="14" y="14" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/>
+                </svg>
+                布局管理器
+            </h4>
+            <button class="lm-close-btn" id="closeLayoutMgr">✕</button>
+        </div>
+        <div class="lm-body">
+            <div class="lm-section">
+                <label>预设布局:</label>
+                <div class="lm-presets">
+                    <button class="lm-preset-btn active" data-preset="default" title="默认三栏">
+                        <svg width="40" height="30" viewBox="0 0 40 30">
+                            <rect x="2" y="2" width="10" height="26" fill="currentColor" opacity="0.3" rx="1"/>
+                            <rect x="14" y="2" width="24" height="26" fill="currentColor" opacity="0.15" rx="1"/>
+                        </svg>
+                        <span>默认</span>
+                    </button>
+                    <button class="lm-preset-btn" data-preset="vertical" title="左右分栏">
+                        <svg width="40" height="30" viewBox="0 0 40 30">
+                            <rect x="2" y="2" width="16" height="26" fill="currentColor" opacity="0.3" rx="1"/>
+                            <rect x="20" y="2" width="18" height="26" fill="currentColor" opacity="0.3" rx="1"/>
+                        </svg>
+                        <span>垂直</span>
+                    </button>
+                    <button class="lm-preset-btn" data-preset="horizontal" title="上下分栏">
+                        <svg width="40" height="30" viewBox="0 0 40 30">
+                            <rect x="2" y="2" width="36" height="11" fill="currentColor" opacity="0.3" rx="1"/>
+                            <rect x="2" y="15" width="36" height="13" fill="currentColor" opacity="0.3" rx="1"/>
+                        </svg>
+                        <span>水平</span>
+                    </button>
+                    <button class="lm-preset-btn" data-preset="focus" title="专注模式">
+                        <svg width="40" height="30" viewBox="0 0 40 30">
+                            <rect x="2" y="2" width="36" height="26" fill="currentColor" opacity="0.3" rx="1"/>
+                        </svg>
+                        <span>专注</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="lm-section">
+                <label>当前面板状态:</label>
+                <div class="lm-panel-list" id="lmPanelList">
+                    <div class="lm-panel-item" data-panel="leftPanel">
+                        <span class="panel-dot" style="background: #8b5cf6;"></span>
+                        <span class="panel-name">左侧任务栏</span>
+                        <span class="panel-status docked-left">左停靠</span>
+                    </div>
+                    <div class="lm-panel-item" data-panel="rightPanel">
+                        <span class="panel-dot" style="background: #06b6d4;"></span>
+                        <span class="panel-name">右侧工具栏</span>
+                        <span class="panel-status docked-right">右停靠</span>
+                    </div>
+                    <div class="lm-panel-item" data-panel="bookmarksPanel">
+                        <span class="panel-dot" style="background: #f59e0b;"></span>
+                        <span class="panel-name">书签面板</span>
+                        <span class="panel-status floating">浮动</span>
+                    </div>
+                    <div class="lm-panel-item" data-panel="recentFilesPanel">
+                        <span class="panel-dot" style="background: #10b981;"></span>
+                        <span class="panel-name">最近访问</span>
+                        <span class="panel-status hidden">隐藏</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="lm-actions">
+                <button class="lm-action-btn" id="saveLayoutBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                        <polyline points="17 21 17 13 7 13 7 21"/>
+                        <polyline points="7 3 7 8 15 8"/>
+                    </svg>
+                    保存布局
+                </button>
+                <button class="lm-action-btn" id="resetLayoutBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="1 4 1 10 7 10"/>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                    </svg>
+                    重置布局
+                </button>
+                <button class="lm-action-btn" id="lockLayoutBtn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    锁定面板
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 面板拖拽手柄 (Drag Handles) - 动态注入到各面板头部 -->
+    
+    <!-- 吸附提示Toast -->
+    <div class="snap-toast" id="snapToast">
+        <div class="snap-toast-icon">🧲</div>
+        <div class="snap-toast-message">已吸附到左侧边缘</div>
+        <button class="snap-toast-undo" id="snapToastUndo">撤销</button>
+    </div>
+
+    <!-- 核心基础设施 -->
+    <script src="js/core/EventBus.js"></script>
+    <script src="js/core/StateManager.js"></script>
+    <script src="js/core/Utils.js"></script>
+    
+    <!-- 业务逻辑模块 -->
+    <script src="js/modules/TaskManager.js"></script>
+    <script src="js/modules/ChatManager.js"></script>
+    <script src="js/modules/ProjectManager.js"></script>
+    <script src="js/modules/FileManager.js"></script>
+    <script src="js/modules/DragEngine.js"></script>
+    <script src="js/modules/LayoutManager.js"></script>
+    
+    <!-- UI组件 -->
+    <script src="js/ui/components.js"></script>
+    
+    <!-- 应用主入口 -->
+    <script src="js/main.js"></script>
+</body>
+</html>

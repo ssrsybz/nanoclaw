@@ -38,9 +38,38 @@ get_port_pid() {
 }
 
 start() {
-    if is_running; then
-        echo "OKClaw 已在运行 (PID: $(get_pid))"
-        return 0
+    local force="${1:-}"
+    local port_pid=$(get_port_pid)
+    local stored_pid=$(get_pid)
+
+    # 检查端口是否被占用
+    if [ -n "$port_pid" ]; then
+        if [ "$force" = "--force" ] || [ "$force" = "-f" ]; then
+            echo "检测到端口 3100 被占用 (PID: $port_pid)，强制终止..."
+            kill "$port_pid" 2>/dev/null || true
+            sleep 1
+            # 确认进程已终止
+            if ps -p "$port_pid" > /dev/null 2>&1; then
+                echo "强制终止 (kill -9)..."
+                kill -9 "$port_pid" 2>/dev/null || true
+                sleep 1
+            fi
+            [ -f "$PID_FILE" ] && rm "$PID_FILE"
+        else
+            echo "✗ 端口 3100 已被占用 (PID: $port_pid)"
+            echo ""
+            echo "选项:"
+            echo "  - 运行 './start.sh stop' 停止现有服务"
+            echo "  - 运行 './start.sh start --force' 强制重启"
+            echo "  - 运行 './start.sh restart' 等同于 stop + start"
+            return 1
+        fi
+    fi
+
+    # 检查 PID 文件是否存在但进程已死
+    if [ -n "$stored_pid" ] && ! ps -p "$stored_pid" > /dev/null 2>&1; then
+        echo "清理残留 PID 文件..."
+        rm -f "$PID_FILE"
     fi
 
     echo "启动 OKClaw..."
@@ -134,7 +163,7 @@ dev() {
 
 case "${1:-start}" in
     start)
-        start
+        start "$2"
         ;;
     stop)
         stop
@@ -157,12 +186,13 @@ case "${1:-start}" in
         echo "用法: $0 {start|stop|restart|status|logs|dev}"
         echo ""
         echo "命令:"
-        echo "  start   - 后台启动服务"
-        echo "  stop    - 停止服务"
-        echo "  restart - 重启服务"
-        echo "  status  - 查看运行状态"
-        echo "  logs    - 查看实时日志"
-        echo "  dev     - 前台开发模式（热重载）"
+        echo "  start         - 后台启动服务"
+        echo "  start -f      - 强制启动（自动杀掉占用端口的进程）"
+        echo "  stop          - 停止服务"
+        echo "  restart       - 重启服务"
+        echo "  status        - 查看运行状态"
+        echo "  logs          - 查看实时日志"
+        echo "  dev           - 前台开发模式（热重载）"
         exit 1
         ;;
 esac
