@@ -88,10 +88,24 @@ stop() {
         pid="$port_pid"
     fi
 
-    echo "停止 OKClaw (PID: $pid)..."
+    echo "停止 OKClaw (PID: $pid) 及其子进程..."
+
+    # 获取进程树中的所有子进程
+    local all_pids=$(pgrep -P "$pid" 2>/dev/null | tr '\n' ' ')
+    local child_pids=""
+    for child in $all_pids; do
+        child_pids="$child_pids $child"
+        # 递归获取孙进程
+        local grandchildren=$(pgrep -P "$child" 2>/dev/null | tr '\n' ' ')
+        for gc in $grandchildren; do
+            child_pids="$child_pids $gc"
+        done
+    done
+
+    # 先杀死主进程
     kill "$pid" 2>/dev/null || true
 
-    # 等待进程结束
+    # 等待主进程结束
     for i in {1..10}; do
         if ! ps -p "$pid" > /dev/null 2>&1; then
             break
@@ -99,9 +113,52 @@ stop() {
         sleep 1
     done
 
+    # 如果主进程还在，强制终止
     if ps -p "$pid" > /dev/null 2>&1; then
-        echo "强制终止..."
+        echo "强制终止主进程..."
         kill -9 "$pid" 2>/dev/null || true
+    fi
+
+    # 清理残留的子进程（Agent SDK、MCP 服务器、Claude CLI 等）
+    if [ -n "$child_pids" ]; then
+        echo "清理子进程: $child_pids"
+        for child_pid in $child_pids; do
+            if ps -p "$child_pid" > /dev/null 2>&1; then
+                kill "$child_pid" 2>/dev/null || true
+            fi
+        done
+        sleep 1
+        # 强制清理仍在运行的子进程
+        for child_pid in $child_pids; do
+            if ps -p "$child_pid" > /dev/null 2>&1; then
+                echo "强制终止子进程 $child_pid"
+                kill -9 "$child_pid" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # 额外清理：杀死所有与 okclaw 相关的 node 进程（通过命令行匹配）
+    local okclaw_related=$(pgrep -f "node.*dist/(index|mcp-stdio)" 2>/dev/null | tr '\n' ' ')
+    if [ -n "$okclaw_related" ]; then
+        echo "清理残留 OKClaw 进程: $okclaw_related"
+        for related_pid in $okclaw_related; do
+            if ps -p "$related_pid" > /dev/null 2>&1; then
+                kill "$related_pid" 2>/dev/null || true
+            fi
+        done
+    fi
+
+    # 清理 Claude CLI 子进程（Agent SDK 启动的）
+    local claude_pids=$(pgrep -f "claude" 2>/dev/null | tr '\n' ' ')
+    if [ -n "$claude_pids" ]; then
+        echo "清理 Claude CLI 进程: $claude_pids"
+        for claude_pid in $claude_pids; do
+            # 检查是否是 OKClaw 启动的（通过检查父进程）
+            local parent=$(ps -o ppid= -p "$claude_pid" 2>/dev/null | tr -d ' ')
+            if [ "$parent" = "$pid" ] || [ -n "$(echo "$child_pids" | grep -w "$parent")" ]; then
+                kill "$claude_pid" 2>/dev/null || true
+            fi
+        done
     fi
 
     rm -f "$PID_FILE"

@@ -36,7 +36,14 @@ When working as a sub-agent or teammate, only use `send_message` if instructed t
 
 ## Your Workspace
 
-Files you create are saved in `/workspace/group/`. Use this for notes, research, or anything that should persist.
+Your current working directory is shown in the `<workspace_context>` section above. All file operations should be relative to this directory.
+
+Use this workspace for:
+- Notes, research, and persistent data
+- Creating files the user asks for
+- Storing important information you learn
+
+If no workspace is set, default to the current directory.
 
 ## Memory
 

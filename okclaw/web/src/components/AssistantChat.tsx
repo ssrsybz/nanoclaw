@@ -733,6 +733,15 @@ const CATEGORY_CONFIG: Record<string, { label: string; icon: string }> = {
   workspace: { label: '工作空间', icon: '📁' },
 };
 
+// Skill type badge config for the picker
+const SKILL_TYPE_BADGE: Record<string, { label: string; color: string }> = {
+  builtin: { label: 'SDK', color: 'bg-gray-500/30 text-gray-300' },
+  operational: { label: '指令', color: 'bg-emerald-500/30 text-emerald-300' },
+  utility: { label: '工具', color: 'bg-blue-500/30 text-blue-300' },
+  feature: { label: '功能', color: 'bg-orange-500/30 text-orange-300' },
+  workspace: { label: '空间', color: 'bg-purple-500/30 text-purple-300' },
+};
+
 // SkillPicker popup component
 function SkillPicker({
   isOpen,
@@ -901,6 +910,7 @@ function SkillPicker({
                 </div>
                 {skills.map((skill) => {
                   const globalIdx = filteredSkills.indexOf(skill);
+                  const typeBadge = skill.skillType && SKILL_TYPE_BADGE[skill.skillType];
                   return (
                     <button
                       key={`${category}-${skill.name}`}
@@ -920,11 +930,15 @@ function SkillPicker({
                           <div className="text-xs text-white/50 mt-0.5 truncate">{skill.description}</div>
                         )}
                       </div>
-                      {skill.isBuiltin && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">
+                      {typeBadge ? (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${typeBadge.color}`}>
+                          {typeBadge.label}
+                        </span>
+                      ) : skill.isBuiltin ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-300">
                           SDK
                         </span>
-                      )}
+                      ) : null}
                     </button>
                   );
                 })}
@@ -968,6 +982,20 @@ function Composer() {
   useEffect(() => {
     fetchSystemSkills();
   }, [fetchSystemSkills]);
+
+  // Listen for okclaw-insert-text events from SkillsPanel install button
+  useEffect(() => {
+    const handleInsertText = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.text) {
+        setInput(detail.text);
+        // Focus the textarea after inserting
+        setTimeout(() => textareaRef.current?.focus(), 0);
+      }
+    };
+    window.addEventListener('okclaw-insert-text', handleInsertText);
+    return () => window.removeEventListener('okclaw-insert-text', handleInsertText);
+  }, []);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

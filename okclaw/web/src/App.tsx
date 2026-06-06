@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useStore, WS_MSG_TYPES, sendWsMessage } from './store';
+import { useStore, WS_MSG_TYPES, sendWsMessage, type Skill } from './store';
 import WorkspaceSidebar from './components/WorkspaceSidebar';
 import AssistantChat from './components/AssistantChat';
 import SkillsPanel from './components/SkillsPanel';
@@ -292,16 +292,22 @@ export default function App() {
       const skillMatch = processedContent.match(/^\/([a-zA-Z0-9_-]+)\s*/);
       if (skillMatch) {
         const skillName = skillMatch[1];
-        const { systemSkills, skills } = useStore.getState();
-        const allSkills = [...systemSkills, ...skills];
+        // Search across all skill sources: skillsByCategory (builtin + system + feature) + workspace skills
+        const { skillsByCategory, skills } = useStore.getState();
+        const allSkills = [...(Object.values(skillsByCategory) as Skill[][]).flat(), ...skills];
         const skill = allSkills.find(s => s.name === skillName || s.name === `/${skillName}`);
 
         if (skill) {
           try {
-            const isSystem = skill.isSystem || systemSkills.includes(skill);
-            const res = isSystem
-              ? await fetch(`/api/system-skills/${skillName}/content`)
-              : await fetch(`/api/workspaces/${workspaceId}/skills/${skillName}/content`);
+            // Use unified /api/skills/content endpoint with correct source parameter
+            const source = skill.source === 'workspace' ? 'workspace'
+              : skill.skillType === 'feature' ? 'feature'
+              : 'system';
+            const params = new URLSearchParams({ source, name: skillName });
+            if (source === 'workspace' && workspaceId) {
+              params.set('workspaceId', workspaceId);
+            }
+            const res = await fetch(`/api/skills/content?${params}`);
             const data = await res.json();
             if (data.content) {
               skillData = { name: skillName, content: data.content };

@@ -1,9 +1,11 @@
 /**
  * Built-in skills definition for OKClaw
- * These are SDK capabilities exposed as skills with Chinese names
+ * These are SDK/MCP capabilities exposed as skill entries with Chinese names.
+ * They are display-only metadata — no SKILL.md files exist for these.
+ * skillType is 'builtin', source is 'builtin', readOnly is true.
  */
 
-export type SkillCategory = 'core' | 'mcp' | 'channel' | 'system' | 'workspace';
+import type { SkillCategory, SkillType, SkillSource } from './types.js';
 
 export interface BuiltinSkill {
   name: string; // English identifier (used for command)
@@ -11,6 +13,9 @@ export interface BuiltinSkill {
   description: string; // Chinese description
   category: SkillCategory;
   icon?: string; // Emoji icon
+  skillType: SkillType;
+  source: SkillSource;
+  readOnly: true;
 }
 
 /**
@@ -24,6 +29,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '进入规划模式，先分析问题设计方案，再执行',
     category: 'core',
     icon: '📋',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'team',
@@ -31,6 +39,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '创建多个 Agent 协作完成任务',
     category: 'core',
     icon: '👥',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'search',
@@ -38,6 +49,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '搜索互联网获取最新信息',
     category: 'core',
     icon: '🔍',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'fetch',
@@ -45,6 +59,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '抓取网页内容进行分析',
     category: 'core',
     icon: '🌐',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'bash',
@@ -52,6 +69,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '在沙盒环境中执行 Shell 命令',
     category: 'core',
     icon: '⚡',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'read',
@@ -59,6 +79,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '读取本地文件内容',
     category: 'core',
     icon: '📄',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'write',
@@ -66,6 +89,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '创建或覆盖写入文件',
     category: 'core',
     icon: '✏️',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'edit',
@@ -73,6 +99,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '对现有文件进行精确编辑',
     category: 'core',
     icon: '🔧',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
 
   // MCP tools
@@ -82,6 +111,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '向用户或群组发送消息',
     category: 'mcp',
     icon: '💬',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'schedule',
@@ -89,6 +121,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '创建定时或周期性任务',
     category: 'mcp',
     icon: '⏰',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
   {
     name: 'list-tasks',
@@ -96,6 +131,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '查看所有定时任务',
     category: 'mcp',
     icon: '📝',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
 
   // Channel tools
@@ -105,6 +143,9 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     description: '注册新的聊天群组',
     category: 'channel',
     icon: '📢',
+    skillType: 'builtin',
+    source: 'builtin',
+    readOnly: true,
   },
 ];
 

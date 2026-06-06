@@ -23,6 +23,8 @@ interface GroupState {
   retryCount: number;
   // Track the conversationId currently being processed
   activeConversationId: string | null;
+  // AbortController for cancelling the running agent
+  abortController: AbortController | null;
 }
 
 export class GroupQueue {
@@ -46,10 +48,37 @@ export class GroupQueue {
         groupFolder: null,
         retryCount: 0,
         activeConversationId: null,
+        abortController: null,
       };
       this.groups.set(groupJid, state);
     }
     return state;
+  }
+
+  /**
+   * Cancel the active agent for a group.
+   * Returns true if an agent was cancelled, false if no active agent.
+   */
+  cancelAgent(groupJid: string): boolean {
+    const state = this.groups.get(groupJid);
+    if (!state || !state.active || !state.abortController) {
+      logger.debug({ groupJid }, 'No active agent to cancel');
+      return false;
+    }
+
+    logger.info({ groupJid }, 'Cancelling active agent');
+    state.abortController.abort();
+    return true;
+  }
+
+  /**
+   * Get the AbortController for a group's active agent.
+   * Returns null if no agent is active.
+   */
+  getAbortController(groupJid: string): AbortController | null {
+    const state = this.groups.get(groupJid);
+    if (!state || !state.active) return null;
+    return state.abortController;
   }
 
   /**
@@ -160,13 +189,17 @@ export class GroupQueue {
 
   /**
    * Register an active agent session for a group.
+   * Returns the AbortController that can be used to cancel the agent.
    */
-  registerAgent(groupJid: string, groupFolder?: string): void {
+  registerAgent(groupJid: string, groupFolder?: string): AbortController {
     const state = this.getGroup(groupJid);
     state.active = true;
     state.isTaskAgent = false;
     if (groupFolder) state.groupFolder = groupFolder;
+    // Create a new AbortController for this agent session
+    state.abortController = new AbortController();
     this.activeCount++;
+    return state.abortController;
   }
 
   /**
@@ -176,6 +209,7 @@ export class GroupQueue {
     const state = this.getGroup(groupJid);
     state.active = false;
     state.groupFolder = null;
+    state.abortController = null;
     this.activeCount--;
     this.drainGroup(groupJid);
   }

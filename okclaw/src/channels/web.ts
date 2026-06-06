@@ -17,6 +17,7 @@ import {
   ALLOWED_EXTENSIONS,
   MAX_FILE_SIZE,
 } from '../file-parser.js';
+import { parseSkillMd } from '../skill-parser.js';
 import { getDb } from '../db.js';
 import { logger } from '../logger.js';
 import * as workspace from '../workspace.js';
@@ -57,6 +58,8 @@ export interface WebChannelOpts {
   registerGroup?: (jid: string, group: RegisteredGroup) => void;
   // Get the active conversationId for a workspace (returns null if no agent running)
   getActiveConversationId?: (workspaceId: string) => string | null;
+  // Cancel the active agent for a workspace (returns true if cancelled)
+  cancelAgent?: (workspaceId: string) => boolean;
 }
 
 export class WebChannel implements Channel {
@@ -482,10 +485,13 @@ export class WebChannel implements Channel {
             category: skill.category,
             icon: skill.icon,
             isBuiltin: true,
+            skillType: skill.skillType,
+            source: skill.source,
+            readOnly: skill.readOnly,
           });
         }
 
-        // Add system skills from skills/ directory
+        // Add system skills from skills/ directory (using unified parser)
         const skillsDir = path.join(PROJECT_ROOT, 'skills');
         if (fs.existsSync(skillsDir)) {
           const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
@@ -498,17 +504,86 @@ export class WebChannel implements Channel {
 
             try {
               const content = fs.readFileSync(skillMdPath, 'utf-8');
-              const frontmatter = this.parseFrontmatter(content);
+              const parsed = parseSkillMd(content);
+              const fm = parsed.frontmatter;
               skillsByCategory.system.push({
-                name: frontmatter.name || entry.name,
-                nameZh: frontmatter.nameZh || frontmatter.name || entry.name,
-                description: frontmatter.description || '',
+                name: fm.name || entry.name,
+                nameZh: fm.nameZh,
+                description: fm.description || '',
                 path: skillPath,
                 enabled: true,
                 hasSkillMd: true,
-                category: 'system',
+                category: fm.category || 'system',
+                icon: fm.icon,
                 isSystem: true,
+                skillType: fm.skillType || 'operational',
+                source: fm.source || 'system',
+                allowedTools: fm['allowed-tools'],
+                dependencies: fm.dependencies,
+                version: fm.version,
+                author: fm.author,
+                readOnly: true, // System skills are read-only in UI
               });
+            } catch {
+              // Skip skills with read errors
+            }
+          }
+        }
+
+        // Add host-side installable skills from .claude/skills/
+        const claudeSkillsDir = path.join(PROJECT_ROOT, '.claude', 'skills');
+        if (fs.existsSync(claudeSkillsDir)) {
+          const entries = fs.readdirSync(claudeSkillsDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue;
+
+            const skillPath = path.join(claudeSkillsDir, entry.name);
+            const skillMdPath = path.join(skillPath, 'SKILL.md');
+            if (!fs.existsSync(skillMdPath)) continue;
+
+            try {
+              const content = fs.readFileSync(skillMdPath, 'utf-8');
+              const parsed = parseSkillMd(content);
+              const fm = parsed.frontmatter;
+              const targetCategory = fm.category || 'channel';
+              if (!skillsByCategory[targetCategory]) {
+                // Fallback to system if category doesn't exist
+                skillsByCategory.system.push({
+                  name: fm.name || entry.name,
+                  nameZh: fm.nameZh,
+                  description: fm.description || '',
+                  path: skillPath,
+                  enabled: true,
+                  hasSkillMd: true,
+                  category: targetCategory,
+                  icon: fm.icon,
+                  skillType: fm.skillType || 'feature',
+                  source: 'system',
+                  allowedTools: fm['allowed-tools'],
+                  dependencies: fm.dependencies,
+                  version: fm.version,
+                  author: fm.author,
+                  readOnly: false, // Installable skills can be invoked/installed
+                });
+              } else {
+                skillsByCategory[targetCategory].push({
+                  name: fm.name || entry.name,
+                  nameZh: fm.nameZh,
+                  description: fm.description || '',
+                  path: skillPath,
+                  enabled: true,
+                  hasSkillMd: true,
+                  category: targetCategory,
+                  icon: fm.icon,
+                  skillType: fm.skillType || 'feature',
+                  source: 'system',
+                  allowedTools: fm['allowed-tools'],
+                  dependencies: fm.dependencies,
+                  version: fm.version,
+                  author: fm.author,
+                  readOnly: false,
+                });
+              }
             } catch {
               // Skip skills with read errors
             }
@@ -522,11 +597,7 @@ export class WebChannel implements Channel {
             const enabledSkills = workspace.getEnabledSkills(db, workspaceId);
             const wsSkills = workspace.scanSkills(ws.path, enabledSkills);
             for (const s of wsSkills) {
-              skillsByCategory.workspace.push({
-                ...s,
-                nameZh: s.name, // Could be enhanced to read from SKILL.md
-                category: 'workspace',
-              });
+              skillsByCategory.workspace.push(s);
             }
           }
         }
@@ -538,11 +609,7 @@ export class WebChannel implements Channel {
       // Route: GET /api/system-skills
       if (pathname === '/api/system-skills' && method === 'GET') {
         const skillsDir = path.join(PROJECT_ROOT, 'skills');
-        const skills: Array<{
-          name: string;
-          description: string;
-          path: string;
-        }> = [];
+        const skills: Array<Skill> = [];
 
         if (fs.existsSync(skillsDir)) {
           const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
@@ -556,11 +623,23 @@ export class WebChannel implements Channel {
 
             try {
               const content = fs.readFileSync(skillMdPath, 'utf-8');
-              const frontmatter = this.parseFrontmatter(content);
+              const parsed = parseSkillMd(content);
+              const fm = parsed.frontmatter;
               skills.push({
-                name: frontmatter.name || entry.name,
-                description: frontmatter.description || '',
+                name: fm.name || entry.name,
+                nameZh: fm.nameZh,
+                description: fm.description || '',
                 path: skillPath,
+                enabled: true,
+                hasSkillMd: true,
+                category: fm.category || 'system',
+                icon: fm.icon,
+                isSystem: true,
+                skillType: fm.skillType || 'operational',
+                source: 'system',
+                allowedTools: fm['allowed-tools'],
+                dependencies: fm.dependencies,
+                readOnly: true,
               });
             } catch {
               // Skip skills with read errors
@@ -578,14 +657,12 @@ export class WebChannel implements Channel {
       );
       if (systemSkillContentMatch && method === 'GET') {
         const skillName = decodeURIComponent(systemSkillContentMatch[1]);
-        const skillMdPath = path.join(
-          PROJECT_ROOT,
-          'skills',
-          skillName,
-          'SKILL.md',
-        );
+        // Try skills/ first, then .claude/skills/ as fallback
+        const systemPath = path.join(PROJECT_ROOT, 'skills', skillName, 'SKILL.md');
+        const featurePath = path.join(PROJECT_ROOT, '.claude', 'skills', skillName, 'SKILL.md');
+        const skillMdPath = fs.existsSync(systemPath) ? systemPath : (fs.existsSync(featurePath) ? featurePath : null);
 
-        if (!fs.existsSync(skillMdPath)) {
+        if (!skillMdPath || !fs.existsSync(skillMdPath)) {
           sendError(404, 'Skill not found');
           return;
         }
@@ -593,6 +670,60 @@ export class WebChannel implements Channel {
         try {
           const content = fs.readFileSync(skillMdPath, 'utf-8');
           sendJson(200, { name: skillName, content });
+        } catch {
+          sendError(500, 'Failed to read skill file');
+        }
+        return;
+      }
+
+      // Route: GET /api/skills/content?source=system|workspace&name=xxx[&workspaceId=xxx]
+      // Unified skill content endpoint for both system and workspace skills
+      if (pathname === '/api/skills/content' && method === 'GET') {
+        const url = new URL(req.url ?? '/', `http://localhost:${this.port}`);
+        const source = url.searchParams.get('source') || 'system';
+        const skillName = url.searchParams.get('name');
+        const wsId = url.searchParams.get('workspaceId');
+
+        if (!skillName) {
+          sendError(400, 'Missing required parameter: name');
+          return;
+        }
+
+        let skillMdPath: string | null = null;
+
+        if (source === 'workspace' && wsId) {
+          const ws = workspace.getWorkspace(db, wsId);
+          if (!ws) {
+            sendError(404, 'Workspace not found');
+            return;
+          }
+          skillMdPath = path.join(ws.path, '.claude', 'skills', skillName, 'SKILL.md');
+        } else if (source === 'feature') {
+          // Feature skills live in .claude/skills/
+          skillMdPath = path.join(PROJECT_ROOT, '.claude', 'skills', skillName, 'SKILL.md');
+        } else {
+          // System skills: try skills/ first, then .claude/skills/ as fallback
+          const systemPath = path.join(PROJECT_ROOT, 'skills', skillName, 'SKILL.md');
+          const featurePath = path.join(PROJECT_ROOT, '.claude', 'skills', skillName, 'SKILL.md');
+          skillMdPath = fs.existsSync(systemPath) ? systemPath : (fs.existsSync(featurePath) ? featurePath : null);
+        }
+
+        if (!skillMdPath || !fs.existsSync(skillMdPath)) {
+          sendError(404, 'Skill not found');
+          return;
+        }
+
+        try {
+          const content = fs.readFileSync(skillMdPath, 'utf-8');
+          const parsed = parseSkillMd(content);
+          sendJson(200, {
+            name: skillName,
+            content,
+            frontmatter: parsed.frontmatter,
+            hasFrontmatter: parsed.hasFrontmatter,
+            warnings: parsed.warnings,
+            errors: parsed.errors,
+          });
         } catch {
           sendError(500, 'Failed to read skill file');
         }
@@ -1435,6 +1566,28 @@ export class WebChannel implements Channel {
       return;
     }
 
+    // Handle stop message - cancel the active agent
+    if (msg.type === 'stop') {
+      const workspaceId = this.clientWorkspaces.get(ws);
+      if (workspaceId && this.opts.cancelAgent) {
+        const cancelled = this.opts.cancelAgent(workspaceId);
+        logger.info(
+          { workspaceId, cancelled },
+          'Stop request received, agent cancellation attempted',
+        );
+        // Send stream_end to tell frontend the turn is complete
+        const conversationId = this.clientConversationIds.get(ws);
+        if (conversationId) {
+          this.sendToClient(ws, {
+            type: 'stream_end',
+            conversationId,
+            workspaceId,
+          });
+        }
+      }
+      return;
+    }
+
     if (msg.type === 'message' && msg.content) {
       const timestamp = new Date().toISOString();
       const sender = msg.sender || 'User';
@@ -1603,43 +1756,6 @@ export class WebChannel implements Channel {
     }
   }
 
-  /**
-   * Parse YAML frontmatter from a SKILL.md file.
-   * Returns an object with name, nameZh, description fields.
-   */
-  private parseFrontmatter(content: string): {
-    name?: string;
-    nameZh?: string;
-    description?: string;
-  } {
-    const result: { name?: string; nameZh?: string; description?: string } = {};
-
-    // Check for frontmatter block
-    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-    if (!frontmatterMatch) return result;
-
-    const frontmatter = frontmatterMatch[1];
-
-    // Parse name field
-    const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
-    if (nameMatch) {
-      result.name = nameMatch[1].trim();
-    }
-
-    // Parse nameZh field (Chinese name)
-    const nameZhMatch = frontmatter.match(/^nameZh:\s*(.+)$/m);
-    if (nameZhMatch) {
-      result.nameZh = nameZhMatch[1].trim();
-    }
-
-    // Parse description field
-    const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
-    if (descMatch) {
-      result.description = descMatch[1].trim();
-    }
-
-    return result;
-  }
 
   isConnected(): boolean {
     return this.httpServer !== null && this.wss !== null;

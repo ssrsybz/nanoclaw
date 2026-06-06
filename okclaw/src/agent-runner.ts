@@ -229,6 +229,7 @@ export interface AgentInput {
   enabledSkills?: string[]; // Skills to inject into systemPrompt
   workspaceId?: string; // If set, namespaces session directory per workspace
   conversationId?: string; // For routing AskUserQuestion responses
+  abortSignal?: AbortSignal; // For cancelling the agent
 }
 
 export interface AgentOutput {
@@ -701,44 +702,16 @@ export async function runAgentDirect(
     // Start polling for input messages
     inputCheckInterval = setInterval(checkInputFiles, 1000);
 
-    // Global CLAUDE.md for non-main groups
-    let globalClaudeMd: string | undefined;
-    if (!input.isMain && fs.existsSync(path.join(globalDir, 'CLAUDE.md'))) {
-      globalClaudeMd = fs.readFileSync(
-        path.join(globalDir, 'CLAUDE.md'),
-        'utf-8',
-      );
-    }
-
-    // Inject enabled skills into systemPrompt
-    let skillContent = '';
-    if (
-      input.enabledSkills &&
-      input.enabledSkills.length > 0 &&
-      input.workspacePath
-    ) {
-      const MAX_SKILL_BYTES = 32 * 1024;
-      let totalBytes = 0;
-      for (const skillName of input.enabledSkills) {
-        const skillMdPath = path.join(
-          input.workspacePath,
-          '.claude',
-          'skills',
-          skillName,
-          'SKILL.md',
-        );
-        if (fs.existsSync(skillMdPath)) {
-          const content = fs.readFileSync(skillMdPath, 'utf-8');
-          const wrapped = `\n<!-- SKILL: ${skillName} -->\n${content}\n<!-- END SKILL: ${skillName} -->\n`;
-          if (totalBytes + wrapped.length > MAX_SKILL_BYTES) break;
-          skillContent += wrapped;
-          totalBytes += wrapped.length;
-        }
-      }
-    }
-
-    const systemPrompt =
-      (globalClaudeMd || 'You are a helpful AI assistant.') + skillContent;
+    // Compose system prompt using claude-md-compose
+    // This auto-injects channel formatting skills based on chatJid,
+    // enabled workspace skills, and MCP module instructions
+    const { composeSystemPrompt } = await import('./claude-md-compose.js');
+    const systemPrompt = composeSystemPrompt({
+      groupFolder: input.groupFolder,
+      chatJid: input.chatJid,
+      workspacePath: input.workspacePath,
+      enabledSkills: input.enabledSkills,
+    });
 
     // Allowed tools — only standard tools; MCP tool names are added
     // dynamically when mcpServers is configured.
@@ -938,6 +911,21 @@ export async function runAgentDirect(
         canUseTool,
       },
     })) {
+      // Check if the agent was cancelled
+      if (input.abortSignal?.aborted) {
+        logger.info({ group: group.name }, 'Agent cancelled by user');
+        // Cleanup input watcher
+        if (inputCheckInterval) {
+          clearInterval(inputCheckInterval);
+          stream.end();
+        }
+        return {
+          status: 'error',
+          result: null,
+          error: 'Agent cancelled by user',
+        };
+      }
+
       messageCount++;
       const msgType =
         message.type === 'system'

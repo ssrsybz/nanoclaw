@@ -36,6 +36,7 @@ import {
   initDatabase,
   setRegisteredGroup,
   setRouterState,
+  deleteSession,
   setSession,
   storeChatMetadata,
   storeMessage,
@@ -71,8 +72,27 @@ let registeredGroups: Record<string, RegisteredGroup> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
 
+/**
+ * In-memory bridge for skill data that cannot be persisted to the messages table.
+ * Key: message ID, Value: skill content to inject into agent prompt.
+ * Entries are cleaned up after processing.
+ */
+const pendingSkills = new Map<string, { name: string; content: string }>();
+
 const channels: Channel[] = [];
 const queue = new GroupQueue();
+
+/**
+ * Strip YAML frontmatter from SKILL.md content before injecting into agent prompt.
+ * The agent only needs the instructional body, not the metadata.
+ */
+function stripSkillFrontmatter(content: string): string {
+  const match = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  if (match) {
+    return content.slice(match[0].length);
+  }
+  return content;
+}
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -275,14 +295,25 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     if (!hasTrigger) return true;
   }
 
-  // Check for skill injection from messages
+  // Restore skill data from in-memory bridge (skill is ephemeral, not stored in DB)
+  for (const m of filteredMessages) {
+    const pending = pendingSkills.get(m.id);
+    if (pending) {
+      (m as any).skill = pending;
+      pendingSkills.delete(m.id);
+    }
+  }
+
+  // Check for skill injection from messages (slash command invocation)
   const skillMsg = filteredMessages.find((m) => m.skill);
   let prompt = formatMessages(filteredMessages, TIMEZONE);
   if (skillMsg?.skill) {
-    prompt = `[SKILL: ${skillMsg.skill.name}]\n${skillMsg.skill.content}\n[/SKILL]\n\n${prompt}`;
+    // Strip frontmatter from skill content before injecting — Agent only needs the instructions
+    const skillBody = stripSkillFrontmatter(skillMsg.skill.content);
+    prompt = `<invoked_skill name="${skillMsg.skill.name}" source="invoked">\n${skillBody}\n</invoked_skill>\n\n${prompt}`;
     logger.info(
       { skillName: skillMsg.skill.name, chatJid },
-      'Injected skill content into prompt',
+      'Injected invoked skill content into prompt',
     );
   }
 
@@ -317,6 +348,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   let streamingSent = false;
+  let detectedApi400Error = false; // Track 400 errors detected in streamed text
   const agentResult = await runAgent(
     group,
     prompt,
@@ -331,9 +363,22 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         streamingSent = true;
 
         if (result.streamType === 'assistant' && result.streamData?.text) {
+          // Detect API 400 errors embedded in streamed text
+          // (The SDK handles 400 errors by yielding them as text, not by throwing)
+          const text = result.streamData.text;
+          if (
+            text.includes('API Error: 400') &&
+            (text.includes('only support text input') ||
+              text.includes('image') ||
+              text.includes('unsupported content'))
+          ) {
+            detectedApi400Error = true;
+            hadError = true;
+          }
+
           await channel.sendStructured(chatJid, {
             type: 'assistant',
-            content: result.streamData.text,
+            content: text,
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
@@ -501,6 +546,50 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   }
 
   if (agentResult.status === 'error' || hadError) {
+    // Check if the error is a 400 about unsupported content (e.g., images).
+    // This can be detected either from the runAgent error return OR from
+    // streamed text containing "API Error: 400...only support text input".
+    // The SDK handles 400 errors by yielding them as text, not by throwing,
+    // so we must check the detectedApi400Error flag set in the onOutput callback.
+    const errMsg = agentResult.error || '';
+    const isUnsupportedContentError =
+      detectedApi400Error ||
+      (errMsg.includes('400') &&
+        (errMsg.includes('only support text input') ||
+          errMsg.includes('image') ||
+          errMsg.includes('unsupported content')));
+
+    if (isUnsupportedContentError) {
+      logger.warn(
+        { group: group.name, error: errMsg, detectedInStream: detectedApi400Error },
+        '400 unsupported content error — clearing session and sending user-friendly error',
+      );
+      // Clear the corrupted session so subsequent messages start fresh
+      const sessionKey = conversationId
+        ? `${group.folder}--conv-${conversationId}`
+        : workspaceId
+          ? `${group.folder}--ws-${workspaceId}`
+          : group.folder;
+      delete sessions[sessionKey];
+      deleteSession(sessionKey);
+
+      // Send a user-friendly error message to the channel
+      const userErrMsg =
+        '⚠️ 当前模型不支持图片输入，相关对话上下文已重置。后续文字消息可以正常发送。';
+      if (channel.sendStructured) {
+        await channel.sendStructured(chatJid, {
+          type: 'assistant',
+          content: userErrMsg,
+          workspaceId: workspaceId ?? null,
+          conversationId: conversationId ?? null,
+        });
+      } else {
+        await channel.sendMessage(chatJid, userErrMsg);
+      }
+      // Advance cursor (don't roll back) — retrying would hit the same error
+      return true;
+    }
+
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {
@@ -510,6 +599,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       );
       return true;
     }
+
     // Roll back cursor so retries can re-process these messages
     lastAgentTimestamp[chatJid] = previousCursor;
     saveState();
@@ -537,6 +627,7 @@ async function runAgent(
   model?: string;
   apiCalls?: AgentOutput['apiCalls'];
   newSessionId?: string;
+  error?: string;
 }> {
   const isMain = group.isMain === true;
   // Use conversation-aware session key so each conversation has isolated context
@@ -596,7 +687,8 @@ async function runAgent(
 
   try {
     // Register this agent session with the queue (keyed by chatJid so piping works per-JID)
-    queue.registerAgent(chatJid, sessionKey);
+    // Get the AbortController to allow cancellation
+    const abortController = queue.registerAgent(chatJid, sessionKey);
 
     const output = await runAgentDirect(
       group,
@@ -611,6 +703,7 @@ async function runAgent(
         enabledSkills,
         workspaceId,
         conversationId,
+        abortSignal: abortController.signal,
       },
       wrappedOnOutput,
     );
@@ -622,7 +715,28 @@ async function runAgent(
 
     if (output.status === 'error') {
       logger.error({ group: group.name, error: output.error }, 'Agent error');
-      return { status: 'error' };
+
+      // Check if the error is a 400 that corrupted the session transcript
+      // (e.g., "Model only support text input" from images in tool results).
+      // Clear the session so subsequent messages start fresh instead of
+      // replaying the same broken transcript and failing forever.
+      const errMsg = output.error || '';
+      if (
+        errMsg.includes('400') &&
+        (errMsg.includes('only support text input') ||
+          errMsg.includes('image') ||
+          errMsg.includes('unsupported content') ||
+          errMsg.includes('invalid_request_error'))
+      ) {
+        logger.warn(
+          { sessionKey, sessionId: sessions[sessionKey] },
+          'Clearing corrupted session due to 400 error with unsupported content',
+        );
+        delete sessions[sessionKey];
+        deleteSession(sessionKey);
+      }
+
+      return { status: 'error', error: output.error };
     }
 
     return {
@@ -633,7 +747,8 @@ async function runAgent(
     };
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');
-    return { status: 'error' };
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return { status: 'error', error: errorMessage };
   } finally {
     queue.unregisterAgent(chatJid);
   }
@@ -882,6 +997,10 @@ async function main(): Promise<void> {
           return;
         }
       }
+      // Bridge skill data through memory (cannot be persisted to DB)
+      if (msg.skill) {
+        pendingSkills.set(msg.id, msg.skill);
+      }
       storeMessage(msg);
     },
     onChatMetadata: (
@@ -897,6 +1016,11 @@ async function main(): Promise<void> {
     getActiveConversationId: (workspaceId: string): string | null => {
       const chatJid = `web:ws-${workspaceId}`;
       return queue.getActiveConversationId(chatJid);
+    },
+    // Cancel the active agent for a workspace (used by Web IM stop button)
+    cancelAgent: (workspaceId: string): boolean => {
+      const chatJid = `web:ws-${workspaceId}`;
+      return queue.cancelAgent(chatJid);
     },
   };
 

@@ -435,6 +435,142 @@ Use available_groups.json to find the JID for a group. The folder name must be c
         };
       },
     },
+    {
+      name: 'add_mcp_server',
+      description:
+        'Add an MCP server to the OKClaw agent configuration. The server will be available in the next agent session. Writes to .mcp.json in the project root.',
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe(
+            'Unique name for the MCP server (lowercase, alphanumeric + hyphens)',
+          ),
+        command: z
+          .string()
+          .describe('Command to run the MCP server (e.g., "npx", "node", "python")'),
+        args: z
+          .array(z.string())
+          .optional()
+          .describe('Arguments for the command'),
+        env: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe('Environment variables for the server'),
+      }),
+      handler: async (args) => {
+        const serverName = args.name as string;
+        const command = args.command as string;
+        const serverArgs = (args.args as string[]) || [];
+        const serverEnv = (args.env as Record<string, string>) || {};
+
+        // Read existing .mcp.json or create new
+        const fs = await import('fs');
+        const path = await import('path');
+        const mcpPath = path.join(process.cwd(), '.mcp.json');
+
+        let config: Record<string, unknown> = { mcpServers: {} };
+        if (fs.existsSync(mcpPath)) {
+          try {
+            config = JSON.parse(fs.readFileSync(mcpPath, 'utf-8'));
+          } catch {
+            config = { mcpServers: {} };
+          }
+        }
+
+        if (!config.mcpServers) {
+          config.mcpServers = {};
+        }
+
+        // Check if already exists
+        if ((config.mcpServers as Record<string, unknown>)[serverName]) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `MCP server "${serverName}" already exists in .mcp.json. Remove it first if you want to update it.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        // Add the server
+        (config.mcpServers as Record<string, unknown>)[serverName] = {
+          command,
+          args: serverArgs,
+          env: serverEnv,
+        };
+
+        // Write back
+        fs.writeFileSync(mcpPath, JSON.stringify(config, null, 2), 'utf-8');
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `MCP server "${serverName}" added to .mcp.json. It will be available in the next agent session. Restart OKClaw or start a new conversation to use it.`,
+            },
+          ],
+        };
+      },
+    },
+    {
+      name: 'install_tool',
+      description:
+        'Install a global tool (npm or pip) for the agent to use. The tool will be available in Bash commands after installation.',
+      inputSchema: z.object({
+        package_manager: z
+          .enum(['npm', 'pip'])
+          .describe('Package manager to use'),
+        package_name: z
+          .string()
+          .describe('Name of the package to install'),
+        version: z
+          .string()
+          .optional()
+          .describe('Version to install (e.g., "1.2.3" for npm, "==1.2.3" for pip)'),
+      }),
+      handler: async (args) => {
+        const pkgManager = args.package_manager as 'npm' | 'pip';
+        const packageName = args.package_name as string;
+        const version = args.version as string | undefined;
+
+        // Validate package name (basic sanity check)
+        if (!/^[a-zA-Z0-9@/_-]+$/.test(packageName)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Invalid package name: "${packageName}". Only alphanumeric characters, hyphens, underscores, slashes, and @ are allowed.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+
+        let installCmd: string;
+        if (pkgManager === 'npm') {
+          const versionedPkg = version
+            ? `${packageName}@${version}`
+            : packageName;
+          installCmd = `npm install -g ${versionedPkg}`;
+        } else {
+          const versionedPkg = version
+            ? `${packageName}${version.startsWith('==') ? version : `==${version}`}`
+            : packageName;
+          installCmd = `pip install ${versionedPkg}`;
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `To install ${packageName}, run this command in your terminal:\n\n\`\`\`bash\n${installCmd}\n\`\`\`\n\nAfter installation, the tool will be available in future agent sessions via the Bash tool.`,
+            },
+          ],
+        };
+      },
+    },
   ];
 }
 
@@ -452,5 +588,7 @@ export function getMcpToolNames(): string[] {
     'mcp__okclaw__cancel_task',
     'mcp__okclaw__update_task',
     'mcp__okclaw__register_group',
+    'mcp__okclaw__add_mcp_server',
+    'mcp__okclaw__install_tool',
   ];
 }

@@ -6,6 +6,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 
 import type { Skill, Workspace } from './types.js';
+import { parseSkillMd } from './skill-parser.js';
 
 // --- System directories that should be rejected ---
 // Note: /var is excluded from this list because on macOS, /var is a symlink to /private/var
@@ -308,6 +309,7 @@ export function writeClaudeMd(workspacePath: string, content: string): void {
 /**
  * Scan the .claude/skills/ directory for available skills.
  * Returns all found skills, marking which are enabled and which have SKILL.md files.
+ * Uses the unified skill-parser for frontmatter parsing.
  */
 export function scanSkills(
   workspacePath: string,
@@ -325,36 +327,58 @@ export function scanSkills(
 
   for (const entry of entries) {
     const skillPath = path.join(skillsDir, entry);
-    const stat = fs.statSync(skillPath);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(skillPath);
+    } catch {
+      continue;
+    }
     if (!stat.isDirectory()) continue;
 
     const skillMdPath = path.join(skillPath, 'SKILL.md');
     const hasSkillMd = fs.existsSync(skillMdPath);
 
     let description = '';
+    let nameZh: string | undefined;
+    let skillType: Skill['skillType'];
+    let source: Skill['source'];
+    let allowedTools: string[] | undefined;
+    let dependencies: string[] | undefined;
+    let icon: string | undefined;
+    let category: Skill['category'];
+
     if (hasSkillMd) {
       try {
         const content = fs.readFileSync(skillMdPath, 'utf-8');
-        // Extract first non-empty, non-heading line as description
-        const lines = content.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed && !trimmed.startsWith('#')) {
-            description = trimmed;
-            break;
-          }
-        }
+        const parsed = parseSkillMd(content);
+        const fm = parsed.frontmatter;
+        description = fm.description || '';
+        nameZh = fm.nameZh;
+        skillType = fm.skillType || 'workspace';
+        source = fm.source || 'workspace';
+        allowedTools = fm['allowed-tools'];
+        dependencies = fm.dependencies;
+        icon = fm.icon;
+        category = fm.category;
       } catch {
-        // Ignore read errors
+        // Ignore read errors — description stays empty
       }
     }
 
     skills.push({
       name: entry,
       description,
+      nameZh,
       path: skillPath,
       enabled: enabledSkills.includes(entry),
       hasSkillMd,
+      category: category || 'workspace',
+      icon,
+      skillType: skillType || 'workspace',
+      source: source || 'workspace',
+      allowedTools,
+      dependencies,
+      readOnly: false, // Workspace skills are always editable
     });
   }
 

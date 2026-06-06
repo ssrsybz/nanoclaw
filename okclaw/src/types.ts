@@ -182,15 +182,43 @@ export interface Workspace {
 
 export type SkillCategory = 'core' | 'mcp' | 'channel' | 'system' | 'workspace';
 
+/**
+ * Skill type distinguishes the nature of the skill:
+ * - builtin: SDK/MCP tool capability, display-only, no SKILL.md
+ * - operational: Pure instruction workflow (e.g., /setup, /debug)
+ * - utility: SKILL.md with supporting scripts or resource files
+ * - feature: Installed via skill/* branch (future)
+ * - workspace: User-created workspace-local skill
+ */
+export type SkillType = 'builtin' | 'operational' | 'utility' | 'feature' | 'workspace';
+
+/**
+ * Skill source identifies where the skill comes from:
+ * - builtin: Hardcoded in builtin-skills.ts
+ * - system: From the skills/ directory at project root
+ * - workspace: From {workspace}/.claude/skills/
+ * - marketplace: From a plugin marketplace (future)
+ */
+export type SkillSource = 'builtin' | 'system' | 'workspace' | 'marketplace';
+
 export interface Skill {
-  name: string; // English identifier
+  name: string; // English identifier (lowercase, alphanumeric + hyphens)
   nameZh?: string; // Chinese name (for display)
-  description: string; // Description (Chinese preferred)
-  path: string;
+  description: string; // What this skill does and when to use it
+  path: string; // Filesystem path or logical identifier
   enabled: boolean;
   hasSkillMd: boolean;
   category?: SkillCategory;
   icon?: string; // Emoji icon
+  // Legacy flags (kept for backward compatibility)
   isBuiltin?: boolean; // From SDK/MCP
   isSystem?: boolean; // From skills/ directory
+  // New fields — NanoClaw-style skill model
+  skillType?: SkillType;
+  source?: SkillSource;
+  allowedTools?: string[]; // Tools this skill requires (from frontmatter allowed-tools)
+  dependencies?: string[]; // Other skills this skill depends on
+  version?: string;
+  author?: string;
+  readOnly?: boolean; // true for system/builtin skills that shouldn't be edited
 }

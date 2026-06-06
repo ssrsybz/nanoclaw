@@ -16,6 +16,25 @@ export function sendWsMessage(msg: object) {
 
 export type SkillCategory = 'core' | 'mcp' | 'channel' | 'system' | 'workspace';
 
+/**
+ * Skill type distinguishes the nature of the skill:
+ * - builtin: SDK/MCP tool capability, display-only, no SKILL.md
+ * - operational: Pure instruction workflow (e.g., /setup, /debug)
+ * - utility: SKILL.md with supporting scripts or resource files
+ * - feature: Installed via skill/* branch (future)
+ * - workspace: User-created workspace-local skill
+ */
+export type SkillType = 'builtin' | 'operational' | 'utility' | 'feature' | 'workspace';
+
+/**
+ * Skill source identifies where the skill comes from:
+ * - builtin: Hardcoded in builtin-skills.ts
+ * - system: From the skills/ directory at project root
+ * - workspace: From {workspace}/.claude/skills/
+ * - marketplace: From a plugin marketplace (future)
+ */
+export type SkillSource = 'builtin' | 'system' | 'workspace' | 'marketplace';
+
 export interface Workspace {
   id: string;
   name: string;
@@ -28,14 +47,23 @@ export interface Workspace {
 export interface Skill {
   name: string;           // English identifier
   nameZh?: string;        // Chinese name (for display)
-  description: string;    // Description (Chinese preferred)
+  description: string;    // What this skill does and when to use it
   path: string;
   enabled: boolean;
   hasSkillMd: boolean;
   category?: SkillCategory;
   icon?: string;          // Emoji icon
+  // Legacy flags
   isBuiltin?: boolean;    // From SDK/MCP
   isSystem?: boolean;     // From skills/ directory
+  // New fields — NanoClaw-style skill model
+  skillType?: SkillType;
+  source?: SkillSource;
+  allowedTools?: string[];
+  dependencies?: string[];
+  version?: string;
+  author?: string;
+  readOnly?: boolean;
 }
 
 export interface Conversation {

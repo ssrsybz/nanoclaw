@@ -1,19 +1,12 @@
 // Channel self-registration barrel file.
 // Each import triggers the channel module's registerChannel() call.
-
-// discord
-import './discord.js';
-
-// feishu
+// Default: Web IM (the management interface itself)
+import './web.js';
 import './feishu.js';
 
+// discord  — install via /add-discord
+// feishu   — install via /add-feishu
 // gmail
-
 // slack
-
 // telegram
-
-// web
-import './web.js';
-
 // whatsapp
