@@ -72,6 +72,10 @@ export interface Channel {
   syncGroups?(force: boolean): Promise<void>;
   // Optional: send structured message for rich UI (streaming, thinking, tool use)
   sendStructured?(jid: string, data: StreamMessage): Promise<void>;
+  // Optional: agent state tracking for reconnection recovery
+  startAgentState?(conversationId: string, workspaceId: string): void;
+  endAgentState?(conversationId: string): void;
+  errorAgentState?(conversationId: string): void;
 }
 
 // Structured message types for streaming UI

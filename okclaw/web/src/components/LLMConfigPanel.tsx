@@ -60,7 +60,7 @@ export default function LLMConfigPanel() {
       {/* Settings button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/10 text-white/50 hover:text-white text-sm transition-colors"
+        className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-black/5 text-ink-faint hover:text-ink text-sm transition-colors"
         title="LLM 配置"
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -71,26 +71,26 @@ export default function LLMConfigPanel() {
 
       {/* Modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={handleClose}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={handleClose}>
           <div
-            className="w-[440px] bg-[#1a1a2e] border border-white/10 rounded-xl shadow-2xl"
+            className="w-[440px] bg-surface border border-line rounded-xl shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <h2 className="text-white font-semibold text-sm">LLM 配置</h2>
-              <button onClick={handleClose} className="text-white/40 hover:text-white text-lg">&times;</button>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+              <h2 className="text-ink font-semibold text-sm">LLM 配置</h2>
+              <button onClick={handleClose} className="text-ink-faint hover:text-ink text-lg">&times;</button>
             </div>
 
             {/* Content */}
             <div className="p-5 space-y-4">
               {/* Source indicator */}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-white/50">配置来源:</span>
+                <span className="text-xs text-ink-faint">配置来源:</span>
                 <span className={`text-xs px-2 py-0.5 rounded ${
                   llmConfig?.source === 'project'
-                    ? 'bg-indigo-600/20 text-indigo-400'
-                    : 'bg-white/10 text-white/70'
+                    ? 'bg-accent-soft text-accent'
+                    : 'bg-black/5 text-ink-sub'
                 }`}>
                   {llmConfig?.source === 'project' ? '项目配置' : '全局配置'}
                 </span>
@@ -98,64 +98,64 @@ export default function LLMConfigPanel() {
 
               {/* API Key */}
               <div>
-                <label className="block text-xs text-white/50 mb-1.5">API Key</label>
+                <label className="block text-xs text-ink-faint mb-1.5">API Key</label>
                 <input
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="输入 API Key（已保存的会显示遮蔽值）"
-                  className="w-full px-3 py-2.5 bg-[#0f0f1a] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-indigo-500 placeholder:text-white/20"
+                  className="w-full px-3 py-2.5 bg-inset border border-line-soft rounded-lg text-ink text-sm focus:outline-none focus:border-accent placeholder:text-ink-faint"
                 />
               </div>
 
               {/* Base URL */}
               <div>
-                <label className="block text-xs text-white/50 mb-1.5">Base URL</label>
+                <label className="block text-xs text-ink-faint mb-1.5">Base URL</label>
                 <input
                   type="text"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   placeholder="例如: https://api.anthropic.com"
-                  className="w-full px-3 py-2.5 bg-[#0f0f1a] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-indigo-500 placeholder:text-white/20"
+                  className="w-full px-3 py-2.5 bg-inset border border-line-soft rounded-lg text-ink text-sm focus:outline-none focus:border-accent placeholder:text-ink-faint"
                 />
               </div>
 
               {/* Model */}
               <div>
-                <label className="block text-xs text-white/50 mb-1.5">Model</label>
+                <label className="block text-xs text-ink-faint mb-1.5">Model</label>
                 <input
                   type="text"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   placeholder="例如: claude-sonnet-4-6"
-                  className="w-full px-3 py-2.5 bg-[#0f0f1a] border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-indigo-500 placeholder:text-white/20"
+                  className="w-full px-3 py-2.5 bg-inset border border-line-soft rounded-lg text-ink text-sm focus:outline-none focus:border-accent placeholder:text-ink-faint"
                 />
               </div>
 
               {/* Help text */}
-              <div className="text-xs text-white/30 space-y-1">
+              <div className="text-xs text-ink-faint space-y-1">
                 <p>• 项目配置会覆盖全局配置（~/.claude/settings.json）</p>
                 <p>• 保存后需要重启服务才能生效</p>
               </div>
 
               {/* Message */}
               {message && (
-                <div className="text-xs text-center text-green-400">{message}</div>
+                <div className="text-xs text-center text-emerald-600">{message}</div>
               )}
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-white/10">
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
               <button
                 onClick={handleClose}
-                className="px-4 py-2 text-xs text-white/50 hover:text-white transition-colors"
+                className="px-4 py-2 text-xs text-ink-faint hover:text-ink transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                className="px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
               >
                 {saving ? '保存中...' : '保存'}
               </button>

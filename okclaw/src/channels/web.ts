@@ -62,6 +62,27 @@ export interface WebChannelOpts {
   cancelAgent?: (workspaceId: string) => boolean;
 }
 
+// ============ Heartbeat Configuration ============
+const HEARTBEAT_INTERVAL = 30000; // Send ping every 30 seconds
+const HEARTBEAT_TIMEOUT = 10000; // Terminate if no pong within 10 seconds
+
+// ============ Agent State Tracking ============
+interface AgentState {
+  conversationId: string;
+  workspaceId: string;
+  status: 'running' | 'complete' | 'error';
+  startedAt: number;
+  // Message buffer for reconnection recovery
+  messageBuffer: Array<{
+    index: number;
+    type: string;
+    data: StreamMessage;
+  }>;
+}
+
+const MESSAGE_BUFFER_SIZE = 200; // Keep last 200 parts per agent
+const AGENT_STATE_TTL = 5 * 60 * 1000; // Keep state for 5 minutes after completion
+
 export class WebChannel implements Channel {
   name = 'web';
 
@@ -79,6 +100,14 @@ export class WebChannel implements Channel {
   // Session mappings for remote control
   private sessionIdToJid = new Map<string, string>();
   private jidToSessionId = new Map<string, string>();
+
+  // ============ Connection Stability: Heartbeat + Agent State + Multi-connection ============
+  // Per-connection heartbeat timers (keyed by WebSocket instance)
+  private heartbeatTimers = new Map<WebSocket, NodeJS.Timeout>();
+  // Agent state tracking for reconnection recovery
+  private agentStates = new Map<string, AgentState>();
+  // Active connection per conversationId (for multi-tab handling)
+  private activeConnections = new Map<string, WebSocket>();
 
   constructor(port: number, opts: WebChannelOpts) {
     this.port = port;
@@ -105,6 +134,9 @@ export class WebChannel implements Channel {
         'Web IM client connected',
       );
 
+      // ============ Heartbeat: start ping/pong cycle ============
+      this.startHeartbeat(ws);
+
       ws.on('message', (data) => {
         try {
           const msg = JSON.parse(data.toString());
@@ -118,6 +150,13 @@ export class WebChannel implements Channel {
         this.clients.delete(ws);
         this.clientWorkspaces.delete(ws);
         this.clientConversationIds.delete(ws);
+        this.stopHeartbeat(ws);
+        // Clean up active connection mapping
+        for (const [convId, conn] of this.activeConnections) {
+          if (conn === ws) {
+            this.activeConnections.delete(convId);
+          }
+        }
         logger.info(
           { clientCount: this.clients.size },
           'Web IM client disconnected',
@@ -127,6 +166,7 @@ export class WebChannel implements Channel {
       ws.on('error', (err) => {
         logger.error({ err }, 'Web IM client error');
         this.clients.delete(ws);
+        this.stopHeartbeat(ws);
       });
 
       // Send connection confirmation
@@ -1537,6 +1577,70 @@ export class WebChannel implements Channel {
       return;
     }
 
+    // ============ Reconnection Recovery ============
+    if (msg.type === 'resume') {
+      const { conversationId, lastReceivedIndex } = msg;
+      logger.info(
+        { conversationId, lastReceivedIndex },
+        'Reconnection: client requesting resume',
+      );
+
+      // Register this connection as active for the conversation
+      if (conversationId) {
+        this.clientConversationIds.set(ws, conversationId);
+        this.registerActiveConnection(ws, conversationId);
+      }
+
+      const state = conversationId
+        ? this.agentStates.get(conversationId)
+        : undefined;
+
+      if (!state || !conversationId) {
+        // No active agent for this conversation
+        this.sendToClient(ws, {
+          type: 'agent_state',
+          conversationId,
+          status: 'none',
+        });
+        return;
+      }
+
+      if (state.status === 'running') {
+        // Agent is still running — replay missed messages
+        const fromIndex = lastReceivedIndex ?? 0;
+        const missedMessages = state.messageBuffer.filter(
+          (m) => m.index >= fromIndex,
+        );
+
+        logger.info(
+          {
+            conversationId,
+            fromIndex,
+            missedCount: missedMessages.length,
+            bufferSize: state.messageBuffer.length,
+          },
+          'Reconnection: replaying missed messages',
+        );
+
+        this.sendToClient(ws, {
+          type: 'agent_resumed',
+          conversationId,
+          status: 'running',
+          missedMessages,
+          totalParts: state.messageBuffer.length,
+        });
+      } else if (state.status === 'complete' || state.status === 'error') {
+        // Agent already finished — let frontend know
+        this.sendToClient(ws, {
+          type: 'agent_state',
+          conversationId,
+          status: state.status,
+        });
+      }
+
+      return;
+    }
+
     if (msg.type === WS_MSG_TYPES.SWITCH_CONVERSATION) {
       if (msg.workspaceId) {
         this.clientWorkspaces.set(ws, msg.workspaceId);
@@ -1733,6 +1837,22 @@ export class WebChannel implements Channel {
     if (sessionId) {
       await this.pushToTerminalService(sessionId, data);
     }
+
+    // ============ Buffer message for reconnection recovery ============
+    if (conversationId) {
+      const state = this.agentStates.get(conversationId);
+      if (state && state.status === 'running') {
+        state.messageBuffer.push({
+          index: state.messageBuffer.length,
+          type: data.type,
+          data: msg as StreamMessage,
+        });
+        // Trim to keep buffer bounded
+        if (state.messageBuffer.length > MESSAGE_BUFFER_SIZE) {
+          state.messageBuffer.shift();
+        }
+      }
+    }
   }
 
   private async pushToTerminalService(
@@ -1756,6 +1876,143 @@ export class WebChannel implements Channel {
     }
   }
 
+  // ============ Heartbeat Methods ============
+
+  /**
+   * Start heartbeat for a WebSocket connection.
+   * Uses setTimeout for true timeout detection:
+   * - Send ping, wait up to HEARTBEAT_TIMEOUT for pong
+   * - If pong received, schedule next ping after HEARTBEAT_INTERVAL
+   * - If timeout, terminate the dead connection
+   */
+  private startHeartbeat(ws: WebSocket): void {
+    let pingTimer: NodeJS.Timeout | null = null;
+    let pongTimer: NodeJS.Timeout | null = null;
+
+    const scheduleNext = () => {
+      pingTimer = setTimeout(() => {
+        // Send ping
+        ws.ping();
+        // Set timeout for pong response
+        pongTimer = setTimeout(() => {
+          logger.info('WebSocket heartbeat timeout, terminating dead connection');
+          ws.terminate();
+        }, HEARTBEAT_TIMEOUT);
+      }, HEARTBEAT_INTERVAL);
+      // Store both timers so we can cancel on close
+      this.heartbeatTimers.set(ws, pingTimer);
+    };
+
+    ws.on('pong', () => {
+      // Clear the pong timeout — connection is alive
+      if (pongTimer) {
+        clearTimeout(pongTimer);
+        pongTimer = null;
+      }
+      // Schedule next heartbeat cycle
+      scheduleNext();
+    });
+
+    // Start first heartbeat cycle
+    scheduleNext();
+  }
+
+  /**
+   * Stop heartbeat for a WebSocket connection.
+   */
+  private stopHeartbeat(ws: WebSocket): void {
+    const timer = this.heartbeatTimers.get(ws);
+    if (timer) {
+      clearTimeout(timer);
+      this.heartbeatTimers.delete(ws);
+    }
+  }
+
+  // ============ Agent State Methods ============
+
+  /**
+   * Register that an agent has started for a conversation.
+   * Called from index.ts when the agent begins processing.
+   */
+  startAgentState(conversationId: string, workspaceId: string): void {
+    this.agentStates.set(conversationId, {
+      conversationId,
+      workspaceId,
+      status: 'running',
+      startedAt: Date.now(),
+      messageBuffer: [],
+    });
+    logger.info(
+      { conversationId, workspaceId, activeAgents: this.agentStates.size },
+      'Agent state: started',
+    );
+  }
+
+  /**
+   * Mark an agent as completed and schedule cleanup.
+   * Called from index.ts when the agent finishes.
+   */
+  endAgentState(conversationId: string): void {
+    const state = this.agentStates.get(conversationId);
+    if (state) {
+      state.status = 'complete';
+      logger.info(
+        { conversationId, bufferSize: state.messageBuffer.length },
+        'Agent state: completed',
+      );
+      // Keep state for a while to allow reconnection recovery
+      setTimeout(() => {
+        this.agentStates.delete(conversationId);
+        logger.debug(
+          { conversationId },
+          'Agent state: cleaned up after TTL',
+        );
+      }, AGENT_STATE_TTL);
+    }
+  }
+
+  /**
+   * Mark an agent as errored.
+   */
+  errorAgentState(conversationId: string): void {
+    const state = this.agentStates.get(conversationId);
+    if (state) {
+      state.status = 'error';
+      // Same TTL cleanup as complete
+      setTimeout(() => {
+        this.agentStates.delete(conversationId);
+      }, AGENT_STATE_TTL);
+    }
+  }
+
+  // ============ Multi-connection Management ============
+
+  /**
+   * Register a connection as the active one for a conversation.
+   * If another connection is already active, notify it that it's been replaced.
+   */
+  private registerActiveConnection(ws: WebSocket, conversationId: string): void {
+    const existingConn = this.activeConnections.get(conversationId);
+    if (
+      existingConn &&
+      existingConn !== ws &&
+      existingConn.readyState === WebSocket.OPEN
+    ) {
+      // Notify the old connection that it's been replaced
+      this.sendToClient(existingConn, {
+        type: 'connection_replaced',
+        conversationId,
+        message: '您的连接已在其他地方打开，当前连接已断开。',
+      });
+      existingConn.close();
+      logger.info(
+        { conversationId },
+        'Multi-connection: replaced existing connection',
+      );
+    }
+    this.activeConnections.set(conversationId, ws);
+  }
+
 
   isConnected(): boolean {
     return this.httpServer !== null && this.wss !== null;
@@ -1766,11 +2023,19 @@ export class WebChannel implements Channel {
   }
 
   async disconnect(): Promise<void> {
+    // Stop all heartbeat timers
+    for (const timer of this.heartbeatTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.heartbeatTimers.clear();
+
     // Close all WebSocket connections
     for (const client of this.clients) {
       client.close();
     }
     this.clients.clear();
+    this.activeConnections.clear();
+    this.agentStates.clear();
 
     // Close WebSocket server
     if (this.wss) {

@@ -6,7 +6,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useChatRuntime } from '../useChatRuntime';
 import { useStore, type ContentPart, type Skill, type SkillCategory } from '../store';
 import { getRandomThinkingVerb } from '../utils/thinking-verbs';
@@ -15,10 +15,10 @@ import { getRandomThinkingVerb } from '../utils/thinking-verbs';
 const markdownGlobalStyles = `
 /* 表格斑马纹 */
 .markdown-body tbody tr:nth-child(odd) {
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(0, 0, 0, 0.02);
 }
 .markdown-body tbody tr:nth-child(even) {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.04);
 }
 
 /* 嵌套列表样式 */
@@ -31,18 +31,52 @@ const markdownGlobalStyles = `
 
 /* 表格悬停效果 */
 .markdown-body tbody tr:hover {
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(47, 107, 94, 0.08);
 }
 `;
+
+// 代码块复制按钮组件
+function CopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute top-2 right-2 p-1.5 rounded-md bg-black/5 hover:bg-black/10 transition-colors group"
+      title={copied ? '已复制!' : '复制代码'}
+    >
+      {copied ? (
+        <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        </svg>
+      ) : (
+        <svg className="w-4 h-4 text-ink-sub group-hover:text-ink transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+      )}
+    </button>
+  );
+}
 
 // Markdown 组件配置 - 参考 Claude Code CLI 渲染风格
 const markdownComponents = {
   // 标题样式：H1 粗体+下划线，H2+ 粗体，各级别有不同字号
   h1({ children }: any) {
-    return <h1 className="text-xl font-bold underline decoration-indigo-500/50 decoration-2 underline-offset-4 my-3 pb-1">{children}</h1>;
+    return <h1 className="text-xl font-bold underline decoration-accent decoration-2 underline-offset-4 my-3 pb-1">{children}</h1>;
   },
   h2({ children }: any) {
-    return <h2 className="text-lg font-bold my-2.5 pb-0.5 border-b border-white/10">{children}</h2>;
+    return <h2 className="text-lg font-bold my-2.5 pb-0.5 border-b border-line">{children}</h2>;
   },
   h3({ children }: any) {
     return <h3 className="text-base font-bold my-2">{children}</h3>;
@@ -51,42 +85,53 @@ const markdownComponents = {
     return <h4 className="text-sm font-bold my-1.5">{children}</h4>;
   },
   h5({ children }: any) {
-    return <h5 className="text-sm font-bold text-white/80 my-1.5">{children}</h5>;
+    return <h5 className="text-sm font-bold text-ink-sub my-1.5">{children}</h5>;
   },
   h6({ children }: any) {
-    return <h6 className="text-xs font-bold text-white/60 my-1">{children}</h6>;
+    return <h6 className="text-xs font-bold text-ink-faint my-1">{children}</h6>;
   },
   // 代码块和行内代码
   code(props: any) {
     const { children, className, ...rest } = props;
     const match = /language-(\w+)/.exec(className || '');
     const inline = !match;
+    const codeContent = String(children).replace(/\n$/, '');
+
     return inline ? (
-      <code className="bg-[#0f0f1a] text-amber-300 px-1.5 py-0.5 rounded text-[0.85em] font-mono border border-amber-500/20" {...rest}>
+      <code className="bg-inset text-[#9a6a2e] px-1.5 py-0.5 rounded text-[0.85em] font-mono border border-line-soft" {...rest}>
         {children}
       </code>
     ) : (
-      <SyntaxHighlighter
-        style={oneDark}
-        language={match[1]}
-        PreTag="div"
-        className="!bg-[#0f0f1a] !rounded-lg !my-2 !border !border-white/10 !shadow-lg !shadow-black/20"
-      >
-        {String(children).replace(/\n$/, '')}
-      </SyntaxHighlighter>
+      <div className="relative group">
+        <SyntaxHighlighter
+          style={oneLight}
+          language={match[1]}
+          PreTag="div"
+          className="!bg-inset !rounded-lg !my-2 !border !border-line !shadow-sm !pr-12"
+        >
+          {codeContent}
+        </SyntaxHighlighter>
+        <CopyButton code={codeContent} />
+      </div>
     );
   },
   pre({ children }: any) {
     return <>{children}</>;
   },
-  // 链接：带图标提示和悬停效果
+  // 链接：点击直接打开外部链接
   a({ href, children }: any) {
+    const handleClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (href) {
+        window.open(href, '_blank', 'noopener,noreferrer');
+      }
+    };
+
     return (
       <a
         href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-indigo-400 hover:text-indigo-300 hover:underline underline-offset-2 transition-colors inline-flex items-center gap-0.5"
+        onClick={handleClick}
+        className="text-accent-ink hover:text-accent hover:underline underline-offset-2 transition-colors inline-flex items-center gap-0.5 cursor-pointer"
       >
         {children}
         <svg className="w-3 h-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -98,7 +143,7 @@ const markdownComponents = {
   // 引用块：左侧边框 + 斜体 + 暗淡背景
   blockquote({ children }: any) {
     return (
-      <blockquote className="border-l-4 border-indigo-500/60 pl-4 pr-3 py-2 my-3 bg-indigo-500/5 rounded-r-lg italic text-white/70">
+      <blockquote className="border-l-4 border-accent pl-4 pr-3 py-2 my-3 bg-accent-soft rounded-r-lg italic text-ink-sub">
         {children}
       </blockquote>
     );
@@ -112,18 +157,18 @@ const markdownComponents = {
     );
   },
   thead({ children }: any) {
-    return <thead className="bg-indigo-500/15">{children}</thead>;
+    return <thead className="bg-accent-soft">{children}</thead>;
   },
   tbody({ children }: any) {
     return <tbody>{children}</tbody>;
   },
   tr({ children }: any) {
-    return <tr className="border-b border-white/10 last:border-0">{children}</tr>;
+    return <tr className="border-b border-line last:border-0">{children}</tr>;
   },
   th({ children, align }: any) {
     const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
     return (
-      <th className={`px-3 py-2 font-semibold text-white/90 ${alignClass} border-r border-white/10 last:border-0`}>
+      <th className={`px-3 py-2 font-semibold text-ink ${alignClass} border-r border-line last:border-0`}>
         {children}
       </th>
     );
@@ -131,7 +176,7 @@ const markdownComponents = {
   td({ children, align }: any) {
     const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
     return (
-      <td className={`px-3 py-2 ${alignClass} border-r border-white/5 last:border-0`}>
+      <td className={`px-3 py-2 ${alignClass} border-r border-line-soft last:border-0`}>
         {children}
       </td>
     );
@@ -139,18 +184,18 @@ const markdownComponents = {
   // 列表：改进缩进和标记
   ul({ children, depth }: any) {
     const indentClass = depth === 0 ? '' : depth === 1 ? 'ml-4' : 'ml-6';
-    return <ul className={`my-2 space-y-1 list-disc list-outside marker:text-indigo-400/60 ${indentClass}`}>{children}</ul>;
+    return <ul className={`my-2 space-y-1 list-disc list-outside marker:text-accent ${indentClass}`}>{children}</ul>;
   },
   ol({ children, depth }: any) {
     const indentClass = depth === 0 ? '' : depth === 1 ? 'ml-4' : 'ml-6';
-    return <ol className={`my-2 space-y-1 list-decimal list-outside marker:text-indigo-400/60 ${indentClass}`}>{children}</ol>;
+    return <ol className={`my-2 space-y-1 list-decimal list-outside marker:text-accent ${indentClass}`}>{children}</ol>;
   },
   li({ children }: any) {
-    return <li className="text-white/85 pl-1">{children}</li>;
+    return <li className="text-ink pl-1">{children}</li>;
   },
   // 水平分隔线
   hr() {
-    return <hr className="my-4 border-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />;
+    return <hr className="my-4 border-0 h-px bg-gradient-to-r from-transparent via-line to-transparent" />;
   },
   // 段落
   p({ children }: any) {
@@ -158,14 +203,14 @@ const markdownComponents = {
   },
   // 强调和粗体
   strong({ children }: any) {
-    return <strong className="font-bold text-white">{children}</strong>;
+    return <strong className="font-bold text-ink">{children}</strong>;
   },
   em({ children }: any) {
-    return <em className="italic text-indigo-200">{children}</em>;
+    return <em className="italic text-accent-ink">{children}</em>;
   },
   // 删除线
   del({ children }: any) {
-    return <del className="line-through text-white/50">{children}</del>;
+    return <del className="line-through text-ink-faint">{children}</del>;
   },
 };
 
@@ -182,8 +227,8 @@ function Thread() {
             <div className="flex-1 flex items-center justify-center py-20">
               <div className="text-center">
                 <div className="text-4xl mb-4">🐾</div>
-                <h2 className="text-lg font-semibold text-white/60">OKClaw</h2>
-                <p className="text-white/30 mt-2 text-sm">发消息开始对话</p>
+                <h2 className="text-lg font-semibold text-ink-sub">OKClaw</h2>
+                <p className="text-ink-faint mt-2 text-sm">发消息开始对话</p>
               </div>
             </div>
           </ThreadPrimitive.Empty>
@@ -347,7 +392,7 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
       {/* Single sticky header - always at top, shows content when needed */}
       {stickyMessage && (
         <div className="sticky top-0 z-10 pt-2 pb-1 flex justify-end">
-          <div className="max-w-[80%] px-4 py-2 text-white text-sm whitespace-pre-wrap rounded-xl bg-indigo-600/90 backdrop-blur-sm shadow-lg shadow-indigo-600/20">
+          <div className="max-w-[80%] px-4 py-2 text-white text-sm whitespace-pre-wrap rounded-xl bg-accent shadow-lg shadow-accent/20">
             {stickyMessage.attachment && (
               <div className="flex items-center gap-1.5 mb-1 pb-1.5 border-b border-white/20">
                 <span>📄</span>
@@ -368,7 +413,7 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
               data-msg-idx={i}
               className="flex justify-end"
             >
-              <div className="max-w-[80%] px-4 py-2.5 text-white text-sm whitespace-pre-wrap rounded-2xl rounded-br-md bg-indigo-600">
+              <div className="max-w-[80%] px-4 py-2.5 text-white text-sm whitespace-pre-wrap rounded-2xl rounded-br-md bg-accent">
                 {msg.attachment && (
                   <div className="flex items-center gap-1.5 mb-1 pb-1.5 border-b border-white/20">
                     <span>📄</span>
@@ -390,7 +435,7 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
       {/* Streaming thinking indicator - after last message */}
       {isStreamingThinkingVisible && streamingThinking && (
         <div className="flex justify-start">
-          <div className="bg-[#16213e] border border-white/5 px-4 py-3 rounded-2xl rounded-bl-md max-w-[85%]">
+          <div className="bg-surface border border-line-soft px-4 py-3 rounded-2xl rounded-bl-md max-w-[85%]">
             {streamingThinking.isStreaming ? (
               <ThinkingSpinner currentOperation={currentOperation} />
             ) : (
@@ -404,12 +449,12 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
   );
 }
 
-// 工具状态颜色映射（提取复用）
+// 工具状态颜色映射（提取复用）—— 浅色背景：深字 + 极淡底，保留语义
 const TOOL_STATUS_COLORS = {
-  pending: 'border-amber-500/20 bg-amber-500/5 text-amber-400/80',
-  running: 'border-blue-500/20 bg-blue-500/5 text-blue-400/80',
-  complete: 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400/80',
-  error: 'border-red-500/20 bg-red-500/5 text-red-400/80',
+  pending: 'border-amber-400/40 bg-amber-50 text-amber-700',
+  running: 'border-blue-400/40 bg-blue-50 text-blue-700',
+  complete: 'border-emerald-400/40 bg-emerald-50 text-emerald-700',
+  error: 'border-red-400/40 bg-red-50 text-red-700',
 } as const;
 
 function ThinkingBlock({ text, status, duration }: { text: string; status?: 'running' | 'complete'; duration?: number }) {
@@ -423,7 +468,7 @@ function ThinkingBlock({ text, status, duration }: { text: string; status?: 'run
     <>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-xs text-indigo-400/70 hover:text-indigo-400 transition-colors px-1"
+        className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover transition-colors px-1"
       >
         <svg
           className={`w-3 h-3 transition-transform ${open ? 'rotate-90' : ''}`}
@@ -444,7 +489,7 @@ function ThinkingBlock({ text, status, duration }: { text: string; status?: 'run
         )}
       </button>
       {open && (
-        <div className="px-4 py-3 rounded-xl bg-[#0f0f1a] border border-indigo-500/20 text-white/50 text-xs">
+        <div className="px-4 py-3 rounded-xl bg-inset border border-accent/30 text-ink-sub text-xs">
           <p className="whitespace-pre-wrap">{text}</p>
         </div>
       )}
@@ -465,7 +510,7 @@ function ThinkingSpinner({ currentOperation }: { currentOperation?: string }) {
   const displayText = currentOperation || verb;
 
   return (
-    <span className="inline-flex items-center gap-1 text-xs text-indigo-400/70">
+    <span className="inline-flex items-center gap-1 text-xs text-accent">
       <span className="animate-pulse">·</span>
       <span className="animate-pulse" style={{ animationDelay: '150ms' }}>·</span>
       <span className="animate-pulse" style={{ animationDelay: '300ms' }}>·</span>
@@ -506,13 +551,13 @@ function ToolUseCard({
             <span>{toolMeta.icon}</span>
             <span className="font-medium">{toolMeta.displayText}</span>
             {toolMeta.detail && (
-              <span className="text-white/40 text-[10px]">{toolMeta.detail}</span>
+              <span className="text-ink-faint text-[10px]">{toolMeta.detail}</span>
             )}
           </>
         ) : (
           <>
             <span className="font-mono font-medium">{toolName}</span>
-            <span className="text-white/30 ml-auto">tool call</span>
+            <span className="text-ink-faint ml-auto">tool call</span>
           </>
         )}
         {toolMeta?.status === 'running' && (
@@ -524,7 +569,7 @@ function ToolUseCard({
       </button>
       {open && toolInput && (
         <div className="px-3 pb-2">
-          <pre className="text-[11px] text-white/50 whitespace-pre-wrap font-mono bg-[#0f0f1a] rounded p-2 max-h-60 overflow-auto">
+          <pre className="text-[11px] text-ink-sub whitespace-pre-wrap font-mono bg-inset rounded p-2 max-h-60 overflow-auto">
             {toolInput}
           </pre>
         </div>
@@ -562,17 +607,17 @@ function ToolResultCard({
           <>
             <span>{toolMeta.icon}</span>
             <span className="font-medium">{toolMeta.displayText}</span>
-            {toolMeta.status === 'complete' && <span className="text-white/30">✓</span>}
-            {toolMeta.status === 'error' && <span className="text-red-400">✗</span>}
+            {toolMeta.status === 'complete' && <span className="text-emerald-600">✓</span>}
+            {toolMeta.status === 'error' && <span className="text-red-500">✗</span>}
           </>
         ) : (
           <span>tool result</span>
         )}
-        <span className="text-white/30 ml-auto">{content.length} chars</span>
+        <span className="text-ink-faint ml-auto">{content.length} chars</span>
       </button>
       {open && (
         <div className="px-3 pb-2">
-          <pre className="text-[11px] text-white/50 whitespace-pre-wrap font-mono bg-[#0f0f1a] rounded p-2 max-h-60 overflow-auto">
+          <pre className="text-[11px] text-ink-sub whitespace-pre-wrap font-mono bg-inset rounded p-2 max-h-60 overflow-auto">
             {content}
           </pre>
         </div>
@@ -602,7 +647,7 @@ function AssistantMessage({
   if (!parts || parts.length === 0) {
     return (
       <div className="flex justify-start">
-        <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-[#16213e] text-white/90 text-sm border border-white/5 max-w-[85%]">
+        <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-surface text-ink text-sm border border-line-soft max-w-[85%]">
           <div className="markdown-body">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {content}
@@ -632,7 +677,7 @@ function AssistantMessage({
   const flushText = () => {
     if (textBuffer) {
       renderedParts.push(
-        <div key={`text-${renderedParts.length}`} className="px-4 py-3 rounded-2xl rounded-bl-md bg-[#16213e] text-white/90 text-sm border border-white/5">
+        <div key={`text-${renderedParts.length}`} className="px-4 py-3 rounded-2xl rounded-bl-md bg-surface text-ink text-sm border border-line-soft">
           <div className="markdown-body">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
               {textBuffer}
@@ -686,26 +731,26 @@ function AssistantMessage({
   const showMetadata = model || apiCalls;
   const metadataSection = showMetadata && (
     <div className="mt-2 ml-1">
-      <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 rounded bg-white/5 border border-white/10">
+      <div className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-2 py-1 rounded bg-black/5 border border-line-soft">
         {model && (
-          <span className="text-xs text-indigo-400 font-medium">🤖 {model}</span>
+          <span className="text-xs text-accent font-medium">🤖 {model}</span>
         )}
         {model && apiCalls && (
-          <span className="text-xs text-white/20">|</span>
+          <span className="text-xs text-ink-faint">|</span>
         )}
         {apiCalls && (
           <>
-            <span className="text-xs text-white/70 font-medium">{apiCalls.total} 调用</span>
+            <span className="text-xs text-ink-sub font-medium">{apiCalls.total} 调用</span>
             {apiCalls.assistantThinking > 0 && (
               <>
-                <span className="text-xs text-white/20">|</span>
-                <span className="text-xs text-amber-400/80">💭 {apiCalls.assistantThinking} 思考</span>
+                <span className="text-xs text-ink-faint">|</span>
+                <span className="text-xs text-amber-600">💭 {apiCalls.assistantThinking} 思考</span>
               </>
             )}
             {apiCalls.assistantToolUse > 0 && (
               <>
-                <span className="text-xs text-white/20">|</span>
-                <span className="text-xs text-emerald-400/80">🔧 {apiCalls.assistantToolUse} 工具</span>
+                <span className="text-xs text-ink-faint">|</span>
+                <span className="text-xs text-emerald-700">🔧 {apiCalls.assistantToolUse} 工具</span>
               </>
             )}
           </>
@@ -733,13 +778,13 @@ const CATEGORY_CONFIG: Record<string, { label: string; icon: string }> = {
   workspace: { label: '工作空间', icon: '📁' },
 };
 
-// Skill type badge config for the picker
+// Skill type badge config for the picker —— 浅底深字
 const SKILL_TYPE_BADGE: Record<string, { label: string; color: string }> = {
-  builtin: { label: 'SDK', color: 'bg-gray-500/30 text-gray-300' },
-  operational: { label: '指令', color: 'bg-emerald-500/30 text-emerald-300' },
-  utility: { label: '工具', color: 'bg-blue-500/30 text-blue-300' },
-  feature: { label: '功能', color: 'bg-orange-500/30 text-orange-300' },
-  workspace: { label: '空间', color: 'bg-purple-500/30 text-purple-300' },
+  builtin: { label: 'SDK', color: 'bg-gray-200 text-gray-700' },
+  operational: { label: '指令', color: 'bg-emerald-100 text-emerald-700' },
+  utility: { label: '工具', color: 'bg-blue-100 text-blue-700' },
+  feature: { label: '功能', color: 'bg-orange-100 text-orange-700' },
+  workspace: { label: '空间', color: 'bg-purple-100 text-purple-700' },
 };
 
 // SkillPicker popup component
@@ -874,11 +919,11 @@ function SkillPicker({
   return (
     <div
       ref={popupRef}
-      className="fixed z-50 w-80 max-h-80 overflow-hidden rounded-lg border border-white/10 bg-[#16213e] shadow-xl flex flex-col"
+      className="fixed z-50 w-80 max-h-80 overflow-hidden rounded-lg border border-line bg-panel shadow-xl flex flex-col"
       style={{ bottom: bottomOffset, left: rect?.left }}
     >
       {/* Search input */}
-      <div className="p-2 border-b border-white/10">
+      <div className="p-2 border-b border-line">
         <input
           ref={searchInputRef}
           type="text"
@@ -888,14 +933,14 @@ function SkillPicker({
             setSelectedIndex(0);
           }}
           placeholder="搜索技能..."
-          className="w-full px-3 py-1.5 text-sm bg-white/5 border border-white/10 rounded text-white placeholder:text-white/30 focus:outline-none focus:border-indigo-500"
+          className="w-full px-3 py-1.5 text-sm bg-surface border border-line-soft rounded text-ink placeholder:text-ink-faint focus:outline-none focus:border-accent"
         />
       </div>
 
       {/* Skills list */}
       <div ref={listRef} className="flex-1 overflow-y-auto">
         {filteredSkills.length === 0 ? (
-          <div className="px-4 py-6 text-center text-white/30 text-sm">
+          <div className="px-4 py-6 text-center text-ink-faint text-sm">
             没有找到匹配的技能
           </div>
         ) : (
@@ -903,10 +948,10 @@ function SkillPicker({
             const config = CATEGORY_CONFIG[category] || { label: category, icon: '📦' };
             return (
               <div key={category}>
-                <div className="px-3 py-1.5 text-xs text-white/40 border-b border-white/5 flex items-center gap-1.5 bg-white/5">
+                <div className="px-3 py-1.5 text-xs text-ink-faint border-b border-line-soft flex items-center gap-1.5 bg-black/5">
                   <span>{config.icon}</span>
                   <span>{config.label}</span>
-                  <span className="text-white/20">({skills.length})</span>
+                  <span className="text-ink-faint">({skills.length})</span>
                 </div>
                 {skills.map((skill) => {
                   const globalIdx = filteredSkills.indexOf(skill);
@@ -916,18 +961,18 @@ function SkillPicker({
                       key={`${category}-${skill.name}`}
                       data-index={globalIdx}
                       onClick={() => onSelect(skill.name, skill)}
-                      className={`w-full px-3 py-2 text-left hover:bg-white/5 transition-colors flex items-center gap-2 ${
-                        selectedIndex === globalIdx ? 'bg-indigo-600/20' : ''
+                      className={`w-full px-3 py-2 text-left hover:bg-black/5 transition-colors flex items-center gap-2 ${
+                        selectedIndex === globalIdx ? 'bg-accent-soft' : ''
                       }`}
                     >
                       <span className="text-base">{skill.icon || '📌'}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm text-white/90 flex items-center gap-1.5">
+                        <div className="text-sm text-ink flex items-center gap-1.5">
                           <span>{skill.nameZh || skill.name}</span>
-                          <span className="text-[10px] text-white/30 font-mono">/{skill.name}</span>
+                          <span className="text-[10px] text-ink-faint font-mono">/{skill.name}</span>
                         </div>
                         {skill.description && (
-                          <div className="text-xs text-white/50 mt-0.5 truncate">{skill.description}</div>
+                          <div className="text-xs text-ink-sub mt-0.5 truncate">{skill.description}</div>
                         )}
                       </div>
                       {typeBadge ? (
@@ -935,7 +980,7 @@ function SkillPicker({
                           {typeBadge.label}
                         </span>
                       ) : skill.isBuiltin ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/20 text-gray-300">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-700">
                           SDK
                         </span>
                       ) : null}
@@ -949,7 +994,7 @@ function SkillPicker({
       </div>
 
       {/* Keyboard hint */}
-      <div className="px-3 py-1.5 text-[10px] text-white/30 border-t border-white/5 flex items-center gap-3 bg-white/5">
+      <div className="px-3 py-1.5 text-[10px] text-ink-faint border-t border-line-soft flex items-center gap-3 bg-black/5">
         <span>↑↓ 选择</span>
         <span>Enter 确认</span>
         <span>Esc 关闭</span>
@@ -1083,7 +1128,7 @@ function Composer() {
   }, [input]);
 
   return (
-    <div className="px-4 py-3 border-t border-white/10">
+    <div className="px-4 py-3 border-t border-line">
       {/* Skill Picker Popup */}
       <SkillPicker
         isOpen={showSkillPicker}
@@ -1095,11 +1140,11 @@ function Composer() {
       {/* Attachment Preview */}
       {attachment && (
         <div className="flex items-center gap-2 mb-2 px-1">
-          <span className="text-xs text-white/60">📄</span>
-          <span className="text-xs text-white/80 bg-white/5 px-2 py-1 rounded">{attachment.filename}</span>
+          <span className="text-xs text-ink-sub">📄</span>
+          <span className="text-xs text-ink bg-surface border border-line-soft px-2 py-1 rounded">{attachment.filename}</span>
           <button
             onClick={() => setAttachment(null)}
-            className="text-white/30 hover:text-white/60 text-xs"
+            className="text-ink-faint hover:text-ink-sub text-xs"
           >
             ✕
           </button>
@@ -1109,7 +1154,7 @@ function Composer() {
       {/* Input Area */}
       <div
         ref={composerRef}
-        className="bg-[#16213e] rounded-xl border border-white/10 focus-within:border-indigo-500"
+        className="bg-surface rounded-xl border border-line focus-within:border-accent"
       >
         {/* Textarea */}
         <textarea
@@ -1120,12 +1165,12 @@ function Composer() {
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
           placeholder="输入消息..."
-          className="w-full bg-transparent text-white text-sm resize-none focus:outline-none placeholder:text-white/20 px-3 pt-3 pb-2 max-h-[150px]"
+          className="w-full bg-transparent text-ink text-sm resize-none focus:outline-none placeholder:text-ink-faint px-3 pt-3 pb-2 max-h-[150px]"
           rows={2}
         />
 
         {/* Toolbar */}
-        <div className="flex items-center gap-1 px-3 py-2 border-t border-white/5">
+        <div className="flex items-center gap-1 px-3 py-2 border-t border-line-soft">
           <input
             ref={fileInputRef}
             type="file"
@@ -1138,8 +1183,8 @@ function Composer() {
             onClick={() => setShowSkillPicker(!showSkillPicker)}
             className={`px-2 py-1 rounded text-sm transition-colors ${
               showSkillPicker
-                ? 'bg-indigo-600/30 text-indigo-400'
-                : 'text-white/40 hover:text-white/70 hover:bg-white/5'
+                ? 'bg-accent-soft text-accent'
+                : 'text-ink-faint hover:text-ink-sub hover:bg-black/5'
             }`}
             title="技能"
           >
@@ -1149,7 +1194,7 @@ function Composer() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="px-2 py-1 rounded text-sm text-white/40 hover:text-white/70 hover:bg-white/5 disabled:opacity-30 transition-colors"
+            className="px-2 py-1 rounded text-sm text-ink-faint hover:text-ink-sub hover:bg-black/5 disabled:opacity-30 transition-colors"
             title="添加附件"
           >
             {uploading ? '⏳' : '📎'}
@@ -1170,7 +1215,7 @@ function Composer() {
             <button
               onClick={handleSend}
               disabled={!input.trim() && !attachment}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm transition-colors"
             >
               Send
             </button>
@@ -1179,7 +1224,7 @@ function Composer() {
       </div>
 
       {/* Hint */}
-      <p className="text-[10px] text-white/20 mt-1 text-center">Enter 发送 · Shift+Enter 换行</p>
+      <p className="text-[10px] text-ink-faint mt-1 text-center">Enter 发送 · Shift+Enter 换行</p>
     </div>
   );
 }

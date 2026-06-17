@@ -56,6 +56,16 @@ export default function App() {
           workspaceId: activeWorkspaceId,
           conversationId: activeConversationId,
         });
+
+        // Request reconnection recovery for active conversation
+        const msgs = useStore.getState().messages[activeConversationId] || [];
+        const lastAssistant = [...msgs].reverse().find((m: any) => m.role === 'assistant');
+        const lastReceivedIndex = lastAssistant?.parts?.length || 0;
+        sendWsMessage({
+          type: 'resume',
+          conversationId: activeConversationId,
+          lastReceivedIndex,
+        });
       }
     };
     ws.onclose = () => {
@@ -241,6 +251,72 @@ export default function App() {
             break;
           }
 
+          case 'agent_resumed': {
+            // Reconnection recovery: replay missed messages
+            const { missedMessages } = data;
+            if (missedMessages && missedMessages.length > 0) {
+              // Start a new assistant turn if needed
+              const msgs = useStore.getState().messages[conversationId] || [];
+              const lastMsg = msgs[msgs.length - 1];
+              if (!lastMsg || lastMsg.role !== 'assistant' || lastMsg._turnComplete) {
+                startAssistantTurn(conversationId);
+              }
+              // Replay each missed message
+              for (const msg of missedMessages) {
+                if (msg.type === 'assistant' && msg.data?.content) {
+                  appendPart(conversationId, { type: 'text', text: msg.data.content });
+                } else if (msg.type === 'thinking' && msg.data?.content) {
+                  setStreamingThinking(() => ({
+                    thinking: msg.data.content,
+                    isStreaming: true,
+                  }));
+                } else if (msg.type === 'tool_use') {
+                  appendPart(conversationId, {
+                    type: 'tool_use',
+                    toolName: msg.data?.toolName,
+                    toolInput: msg.data?.toolInput,
+                    toolMeta: msg.data?.toolMeta,
+                  });
+                } else if (msg.type === 'tool_result' && msg.data?.content) {
+                  appendPart(conversationId, {
+                    type: 'tool_result',
+                    content: msg.data.content,
+                    toolMeta: msg.data?.toolMeta,
+                  });
+                }
+              }
+            }
+            setTyping(conversationId, true);
+            break;
+          }
+
+          case 'agent_state': {
+            // Agent state response on reconnection
+            if (data.status === 'none' || data.status === 'complete' || data.status === 'error') {
+              // Check if there's an incomplete assistant turn in the frontend
+              const msgs = useStore.getState().messages[conversationId] || [];
+              const lastMsg = [...msgs].reverse().find((m: any) => m.role === 'assistant');
+              if (lastMsg && !(lastMsg as any)._turnComplete) {
+                // Agent is gone (server restart or error) — mark the turn as complete
+                // with a recovery hint
+                appendPart(conversationId, {
+                  type: 'text',
+                  text: '\n\n⚠️ 连接已恢复，但之前的任务状态丢失。请重新发送消息继续。',
+                });
+                finishAssistantTurn(conversationId);
+                setTyping(conversationId, false);
+              }
+            }
+            break;
+          }
+
+          case 'connection_replaced': {
+            // Another tab/window has taken over this conversation
+            // Show a brief notification and let the old connection close gracefully
+            console.warn('WebSocket connection replaced by another tab:', data.message);
+            break;
+          }
+
           // Legacy fallback
           case 'message':
             if (data.content) {
@@ -370,7 +446,7 @@ export default function App() {
   }, [setTyping]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#1a1a2e]">
+    <div className="flex h-screen w-screen overflow-hidden bg-app">
       <WorkspaceSidebar />
       <AssistantChat />
       <SkillsPanel />
@@ -379,7 +455,7 @@ export default function App() {
       {/* Remote Control Floating Button */}
       <button
         onClick={() => setShowRemoteControl(true)}
-        className="fixed bottom-4 right-4 bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-full shadow-lg z-40"
+        className="fixed bottom-4 right-4 bg-accent hover:bg-accent-hover text-white p-3 rounded-full shadow-lg z-40"
         title="远程控制"
       >
         📱
@@ -392,3 +468,4 @@ export default function App() {
     </div>
   );
 }
+

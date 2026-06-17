@@ -1,1 +1,51 @@
 @import "tailwindcss";
+
+/* ============================================================
+   OKClaw 浅色配色方案 —— 温暖纸感米白 + 柔和墨绿
+   （长时间观看更护眼：暖调底 + 中波长强调色 + 柔和对比度）
+   所有语义色 token 集中在此，换配色只需改这一处。
+   ============================================================ */
+@theme {
+  /* ---- 背景层级（由深到浅做层次区分）---- */
+  --color-app: #f4f1ea;       /* 最底层：暖米白（主背景） */
+  --color-panel: #efeae0;     /* 侧边栏 / 技能栏：略深米色 */
+  --color-surface: #faf8f3;   /* 气泡 / 卡片 / 输入框：更亮的米白 */
+  --color-inset: #f7f3eb;     /* 代码块 / 凹陷区：带一点暖灰 */
+
+  /* ---- 文字层级 ---- */
+  --color-ink: #2b2a26;       /* 主文字：暖近黑（非纯黑，更柔和） */
+  --color-ink-sub: #6b6760;   /* 次要文字：暖灰 */
+  --color-ink-faint: #9c978c; /* 提示文字：浅暖灰 */
+
+  /* ---- 强调色（墨绿，替代原靛蓝）---- */
+  --color-accent: #2f6b5e;
+  --color-accent-hover: #265750;
+  --color-accent-soft: #e6efeb;     /* 强调色浅底（选中态 / 标签） */
+  --color-accent-ink: #1f4d44;      /* 强调色上的深字 / 链接深色 */
+
+  /* ---- 边框 ---- */
+  --color-line: #e2dccc;       /* 标准分割线 / 边框 */
+  --color-line-soft: #ebe6da;  /* 更淡的边框 */
+}
+
+/* 全局底色 + 文字基线 */
+html, body, #root {
+  background-color: var(--color-app);
+  color: var(--color-ink);
+}
+
+/* 自定义滚动条（米色系，呼应整体配色）*/
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4cdba;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #c2b9a1;
+}

@@ -338,6 +338,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   let hadError = false;
   let outputSentToUser = false;
 
+  // Register agent state for reconnection recovery
+  if (conversationId && workspaceId) {
+    channel.startAgentState?.(conversationId, workspaceId);
+  }
+
   // Send stream_start event to mark the beginning of an Agent turn
   if (channel.sendStructured) {
     await channel.sendStructured(chatJid, {
@@ -470,6 +475,15 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     });
   }
   await channel.setTyping?.(chatJid, false);
+
+  // Mark agent state as complete for reconnection recovery
+  if (conversationId) {
+    if (agentResult.status === 'error' || hadError) {
+      channel.errorAgentState?.(conversationId);
+    } else {
+      channel.endAgentState?.(conversationId);
+    }
+  }
 
   // Generate title for new conversations (silent background call)
   if (conversationId && workspaceId && agentResult.status === 'success') {
