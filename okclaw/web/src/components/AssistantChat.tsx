@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, useDeferredValue } from 'react';
 import {
   AssistantRuntimeProvider,
   ThreadPrimitive,
@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useChatRuntime } from '../useChatRuntime';
-import { useStore, type ContentPart, type Skill, type SkillCategory } from '../store';
+import { useStore, type AttachmentInfo, type ContentPart, type Skill, type SkillCategory } from '../store';
 import { getRandomThinkingVerb } from '../utils/thinking-verbs';
 
 // 全局 Markdown 样式（注入到页面）
@@ -241,14 +241,26 @@ function Thread() {
   );
 }
 
+function getUserDisplayContent(content: string, attachment?: AttachmentInfo): string {
+  if (!attachment) return content;
+  const marker = '---文件内容结束---';
+  const idx = content.indexOf(marker);
+  if (idx === -1) return content;
+  const display = content.slice(idx + marker.length).replace(/^\s*原始文件已保存至:.*\n?/m, '').trim();
+  return display || `已发送${attachment.source === 'workspace-file' ? '上下文文件' : '附件'}：${attachment.filename}`;
+}
+
 function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElement | null> }) {
   const messages = useStore((s) =>
     s.activeConversationId ? s.messages[s.activeConversationId] : undefined
   ) || [];
   const activeConversationId = useStore((s) => s.activeConversationId);
   const isRunning = useStore((s) => activeConversationId ? s.isTyping(activeConversationId) : false);
-  const streamingThinking = useStore((s) => s.streamingThinking);
+  const allStreamingThinking = useStore((s) => s.streamingThinking);
   const setStreamingThinking = useStore((s) => s.setStreamingThinking);
+
+  // Get streaming thinking for current conversation only
+  const streamingThinking = activeConversationId ? allStreamingThinking[activeConversationId] : null;
 
   // Check if streaming thinking should be visible (streaming or within 30s timeout)
   const isStreamingThinkingVisible = useMemo(() => {
@@ -262,20 +274,33 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
 
   // Auto-hide completed streaming thinking after 30s
   useEffect(() => {
-    if (streamingThinking && !streamingThinking.isStreaming && streamingThinking.streamingEndedAt) {
+    if (streamingThinking && !streamingThinking.isStreaming && streamingThinking.streamingEndedAt && activeConversationId) {
       const elapsed = Date.now() - streamingThinking.streamingEndedAt;
       const remaining = 30000 - elapsed;
       if (remaining > 0) {
-        const timer = setTimeout(() => setStreamingThinking(() => null), remaining);
+        const timer = setTimeout(() => {
+          setStreamingThinking((cur) => ({ ...cur, [activeConversationId]: null }));
+        }, remaining);
         return () => clearTimeout(timer);
       } else {
-        setStreamingThinking(() => null);
+        setStreamingThinking((cur) => ({ ...cur, [activeConversationId]: null }));
       }
     }
-  }, [streamingThinking, setStreamingThinking]);
+  }, [streamingThinking, setStreamingThinking, activeConversationId]);
 
   const lastUserMessageIndexRef = useRef(-1);
   const isUserScrollingRef = useRef(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  // Scroll to bottom button handler
+  const scrollToBottom = useCallback(() => {
+    viewportRef.current?.scrollTo({
+      top: viewportRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+    isUserScrollingRef.current = false;
+    setShowScrollToBottom(false);
+  }, [viewportRef]);
 
   // Simplified sticky state: just the message content to show in sticky header
   const [stickyMessage, setStickyMessage] = useState<{ content: string; attachment?: { filename: string } } | null>(null);
@@ -283,6 +308,7 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
   const lastStickyRef = useRef<{ content: string; attachment?: { filename: string } } | null>(null);
 
   // Scroll handler to find which user message should be sticky
+  // and detect if user is viewing history (scrolled up from bottom)
   useEffect(() => {
     const container = viewportRef.current;
     if (!container || messages.length === 0) return;
@@ -290,6 +316,13 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
     const updateSticky = () => {
       const containerRect = container.getBoundingClientRect();
       const stickyThreshold = containerRect.top + 60;
+
+      // Detect if user is near bottom (within 150px) or has scrolled up to view history
+      // When near bottom, allow auto-scroll; when scrolled up, respect user's position
+      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+      const isNearBottom = distanceFromBottom < 150;
+      isUserScrollingRef.current = !isNearBottom;
+      setShowScrollToBottom(!isNearBottom && isRunning);
 
       // Find the last user message that's above the threshold
       // and whose assistant reply is still visible
@@ -309,7 +342,7 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
 
         // User message is above viewport, assistant reply is at least partially visible
         if (userRect.bottom < stickyThreshold && assistantRect.bottom > containerRect.top) {
-          candidate = { content: msg.content, attachment: msg.attachment };
+          candidate = { content: getUserDisplayContent(msg.content, msg.attachment), attachment: msg.attachment };
           break;
         }
       }
@@ -420,14 +453,14 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
                     <span className="text-white/80 text-xs">{msg.attachment.filename}</span>
                   </div>
                 )}
-                {msg.content}
+                {getUserDisplayContent(msg.content, msg.attachment)}
               </div>
             </div>
           );
         }
         return (
           <div key={i} data-msg-idx={i}>
-            <AssistantMessage parts={msg.parts} content={msg.content} model={msg.model} apiCalls={msg.apiCalls} />
+            <AssistantMessage parts={msg.parts} content={msg.content} model={msg.model} apiCalls={msg.apiCalls} turnComplete={msg._turnComplete} />
           </div>
         );
       })}
@@ -443,6 +476,19 @@ function MessageList({ viewportRef }: { viewportRef: React.RefObject<HTMLDivElem
             )}
           </div>
         </div>
+      )}
+
+      {/* Scroll to bottom button - shown when user scrolls up during streaming */}
+      {showScrollToBottom && (
+        <button
+          onClick={scrollToBottom}
+          className="fixed bottom-24 right-8 z-20 p-3 bg-accent text-white rounded-full shadow-lg hover:bg-accent/90 transition-colors"
+          title="滚动到最新消息"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M19 12l-7 7-7-7"/>
+          </svg>
+        </button>
       )}
 
     </div>
@@ -631,6 +677,7 @@ function AssistantMessage({
   parts,
   model,
   apiCalls,
+  turnComplete,
 }: {
   content: string;
   parts?: ContentPart[];
@@ -643,8 +690,32 @@ function AssistantMessage({
     assistantToolUse: number;
     toolResults: number;
   };
+  turnComplete?: boolean;
 }) {
-  if (!parts || parts.length === 0) {
+  // During token-level streaming (turn not yet complete), defer re-rendering of
+  // parts so high-frequency text_delta updates don't trigger a full ReactMarkdown
+  // re-parse on every token. Completed turns render synchronously (full markdown).
+  const isStreaming = !turnComplete;
+  const deferredParts = useDeferredValue(parts);
+  const renderParts = isStreaming ? deferredParts : parts;
+
+  // NOTE: all hooks must run unconditionally before any early return, otherwise
+  // the number of hooks changes between renders → React error #310 (界面白屏).
+  // Find the index of the LAST thinking block — only render that one,
+  // hiding earlier ones (like Claude Code's lastThinkingBlockId approach).
+  const lastThinkingIndex = useMemo(() => {
+    if (!renderParts || renderParts.length === 0) return -1;
+    let idx = -1;
+    for (let i = renderParts.length - 1; i >= 0; i--) {
+      if (renderParts[i].type === 'thinking') {
+        idx = i;
+        break;
+      }
+    }
+    return idx;
+  }, [renderParts]);
+
+  if (!renderParts || renderParts.length === 0) {
     return (
       <div className="flex justify-start">
         <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-surface text-ink text-sm border border-line-soft max-w-[85%]">
@@ -657,19 +728,6 @@ function AssistantMessage({
       </div>
     );
   }
-
-  // Find the index of the LAST thinking block — only render that one,
-  // hiding earlier ones (like Claude Code's lastThinkingBlockId approach).
-  const lastThinkingIndex = useMemo(() => {
-    let idx = -1;
-    for (let i = parts.length - 1; i >= 0; i--) {
-      if (parts[i].type === 'thinking') {
-        idx = i;
-        break;
-      }
-    }
-    return idx;
-  }, [parts]);
 
   const renderedParts: React.ReactNode[] = [];
   let textBuffer = '';
@@ -689,7 +747,7 @@ function AssistantMessage({
     }
   };
 
-  parts.forEach((part, idx) => {
+  renderParts.forEach((part, idx) => {
     if (part.type === 'text') {
       textBuffer += part.text;
     } else if (part.type === 'thinking') {
@@ -1008,19 +1066,17 @@ function Composer() {
   const [input, setInput] = useState('');
   const [isComposing, setIsComposing] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [attachment, setAttachment] = useState<{
-    fileId: string;
-    filename: string;
-    extractedText: string;
-    filePath: string;
-  } | null>(null);
+  const [attachment, setAttachment] = useState<AttachmentInfo | null>(null);
   const [showSkillPicker, setShowSkillPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
+  const lastSendTimeRef = useRef(0); // Debounce: prevent rapid double-clicks
   const activeConversationId = useStore((s) => s.activeConversationId);
   const typing = useStore((s) => activeConversationId ? s.isTyping(activeConversationId) : false);
   const activeWorkspaceId = useStore((s) => s.activeWorkspaceId);
+  const contextAttachments = useStore((s) => s.contextAttachments);
+  const clearContextAttachments = useStore((s) => s.clearContextAttachments);
   const fetchSystemSkills = useStore((s) => s.fetchSystemSkills);
 
   // Fetch system skills on mount
@@ -1076,6 +1132,9 @@ function Composer() {
         filename: data.filename,
         extractedText: data.extractedText,
         filePath: data.filePath,
+        source: 'upload',
+        mimeType: data.mimeType,
+        size: data.size,
       });
     } catch (err) {
       alert(err instanceof Error ? err.message : '上传失败');
@@ -1085,14 +1144,29 @@ function Composer() {
     }
   };
 
+  const contextAttachment = contextAttachments[0] || null;
+  const effectiveAttachment = attachment || contextAttachment;
+
   const handleSend = () => {
-    if ((!input.trim() && !attachment) || typing || isComposing || uploading) return;
+    // Debounce: prevent rapid double-clicks (1 second threshold)
+    const now = Date.now();
+    if (now - lastSendTimeRef.current < 1000) return;
+
+    if (attachment && contextAttachment) {
+      alert('当前只能发送一个附件或上下文文件，请先移除其中一个');
+      return;
+    }
+
+    if ((!input.trim() && !effectiveAttachment) || typing || isComposing || uploading) return;
+
+    lastSendTimeRef.current = now;
     const content = input.trim();
     setInput('');
     window.dispatchEvent(new CustomEvent('okclaw-send', {
-      detail: { content, attachment },
+      detail: { content, attachment: effectiveAttachment },
     }));
     setAttachment(null);
+    clearContextAttachments();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1138,12 +1212,14 @@ function Composer() {
       />
 
       {/* Attachment Preview */}
-      {attachment && (
+      {(attachment || contextAttachment) && (
         <div className="flex items-center gap-2 mb-2 px-1">
           <span className="text-xs text-ink-sub">📄</span>
-          <span className="text-xs text-ink bg-surface border border-line-soft px-2 py-1 rounded">{attachment.filename}</span>
+          <span className="text-xs text-ink bg-surface border border-line-soft px-2 py-1 rounded max-w-[70%] truncate">
+            {attachment ? attachment.filename : `上下文：${contextAttachment?.filename}`}
+          </span>
           <button
-            onClick={() => setAttachment(null)}
+            onClick={() => attachment ? setAttachment(null) : clearContextAttachments()}
             className="text-ink-faint hover:text-ink-sub text-xs"
           >
             ✕
@@ -1214,7 +1290,7 @@ function Composer() {
           ) : (
             <button
               onClick={handleSend}
-              disabled={!input.trim() && !attachment}
+              disabled={!input.trim() && !effectiveAttachment}
               className="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed text-white text-sm transition-colors"
             >
               Send

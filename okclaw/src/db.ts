@@ -229,6 +229,16 @@ function createSchema(database: Database.Database): void {
   } catch {
     // Column already exists, ignore
   }
+
+  // Migration: add icon column to workspaces
+  // Stores workspace avatar: null = no icon, "iconify:prefix:name" = library icon, "<svg...>" = custom SVG
+  try {
+    database.exec(
+      `ALTER TABLE workspaces ADD COLUMN icon TEXT`,
+    );
+  } catch {
+    // Column already exists, ignore
+  }
 }
 
 export function initDatabase(): void {
@@ -924,11 +934,15 @@ export function addConversationMessage(
   attachment?: string,
   model?: string,
   apiCalls?: string,
+  messageId?: string, // Optional: pre-generated id for stable frontend state
 ): ConversationMessageRow {
-  const id = crypto.randomUUID();
+  const id = messageId || crypto.randomUUID();
   const now = new Date().toISOString();
+
+  // Use INSERT OR IGNORE for idempotency: if the id already exists (e.g., duplicate
+  // stream_end), silently skip the insert instead of throwing UNIQUE constraint error.
   db.prepare(
-    `INSERT INTO conversation_messages (id, conversation_id, role, content, parts, attachment, model, api_calls, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO conversation_messages (id, conversation_id, role, content, parts, attachment, model, api_calls, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     conversationId,
@@ -940,22 +954,18 @@ export function addConversationMessage(
     apiCalls ?? null,
     now,
   );
+
   // Update conversation updated_at
   db.prepare(`UPDATE conversations SET updated_at = ? WHERE id = ?`).run(
     now,
     conversationId,
   );
-  return {
-    id,
-    conversation_id: conversationId,
-    role,
-    content,
-    parts: parts ?? null,
-    attachment: attachment ?? null,
-    model: model ?? null,
-    api_calls: apiCalls ?? null,
-    created_at: now,
-  };
+
+  // Return the actual record from DB (in case INSERT was ignored due to existing id)
+  const record = db
+    .prepare(`SELECT * FROM conversation_messages WHERE id = ?`)
+    .get(id) as ConversationMessageRow;
+  return record;
 }
 
 /**

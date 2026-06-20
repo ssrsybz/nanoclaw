@@ -41,6 +41,7 @@ import {
   storeChatMetadata,
   storeMessage,
   updateConversation,
+  addConversationMessage,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -343,17 +344,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     channel.startAgentState?.(conversationId, workspaceId);
   }
 
+  // Pre-generate messageId for stable frontend state (avoids DOM re-mount on refresh)
+  const assistantMessageId = crypto.randomUUID();
+
   // Send stream_start event to mark the beginning of an Agent turn
   if (channel.sendStructured) {
     await channel.sendStructured(chatJid, {
       type: 'stream_start',
       workspaceId: workspaceId ?? null,
       conversationId: conversationId ?? null,
+      messageId: assistantMessageId,
     });
   }
 
   let streamingSent = false;
   let detectedApi400Error = false; // Track 400 errors detected in streamed text
+  // Backend persistence: accumulate ContentParts for this turn (mirrors frontend store.ts structure)
+  const turnParts: any[] = [];
   const agentResult = await runAgent(
     group,
     prompt,
@@ -387,6 +394,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
+          turnParts.push({ type: 'text', text });
           outputSentToUser = true;
         } else if (
           result.streamType === 'thinking' &&
@@ -398,6 +406,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
+          turnParts.push({
+            type: 'thinking',
+            text: result.streamData.thinking,
+            status: 'running',
+          });
         } else if (result.streamType === 'tool_use') {
           await channel.sendStructured(chatJid, {
             type: 'tool_use',
@@ -406,6 +419,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             toolMeta: result.streamData?.toolMeta,
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
+          });
+          turnParts.push({
+            type: 'tool_use',
+            toolName: result.streamData?.toolName,
+            toolInput: result.streamData?.toolInput,
+            toolMeta: result.streamData?.toolMeta,
           });
         } else if (
           result.streamType === 'tool_result' &&
@@ -417,6 +436,12 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             toolMeta: result.streamData?.toolMeta,
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
+          });
+          turnParts.push({
+            type: 'tool_result',
+            content: result.streamData.toolOutput,
+            toolResponse: result.streamData?.toolResponse,
+            toolMeta: result.streamData?.toolMeta,
           });
         } else if (
           result.streamType === 'ask_user_question' &&
@@ -430,6 +455,27 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
+        } else if (result.streamType === 'text_delta') {
+          // Token-level delta: fire-and-forget to frontend only.
+          // NOT pushed to turnParts (accumulation happens via the full
+          // 'assistant' block branch). NOT buffered in messageBuffer.
+          if (result.streamData?.text) {
+            await channel.sendStructured(chatJid, {
+              type: 'text_delta',
+              content: result.streamData.text,
+              workspaceId: workspaceId ?? null,
+              conversationId: conversationId ?? null,
+            });
+          }
+        } else if (result.streamType === 'thinking_delta') {
+          if (result.streamData?.thinking) {
+            await channel.sendStructured(chatJid, {
+              type: 'thinking_delta',
+              content: result.streamData.thinking,
+              workspaceId: workspaceId ?? null,
+              conversationId: conversationId ?? null,
+            });
+          }
         }
         return;
       }
@@ -452,8 +498,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             workspaceId: workspaceId ?? null,
             conversationId: conversationId ?? null,
           });
+          turnParts.push({ type: 'text', text });
         } else if (text) {
           await channel.sendMessage(chatJid, text);
+          turnParts.push({ type: 'text', text });
         }
         outputSentToUser = true;
       }
@@ -470,10 +518,43 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       type: 'stream_end',
       workspaceId: workspaceId ?? null,
       conversationId: conversationId ?? null,
+      messageId: assistantMessageId,
       model: agentResult.model,
       apiCalls: agentResult.apiCalls,
     });
   }
+
+  // Backend is the sole persistence point: write the complete assistant turn to DB.
+  // This guarantees the result survives even if the frontend is not subscribed
+  // (workspace switched / page closed) — fixes the "background task result lost" bug.
+  if (conversationId && workspaceId) {
+    try {
+      const db = getDb();
+      const contentText =
+        turnParts
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text)
+          .join('')
+          .trim() || '(此消息无文本内容)';
+      addConversationMessage(
+        db,
+        conversationId,
+        'assistant',
+        contentText,
+        JSON.stringify(turnParts),
+        undefined,
+        agentResult.model,
+        agentResult.apiCalls ? JSON.stringify(agentResult.apiCalls) : undefined,
+        assistantMessageId, // Use pre-generated id for stable frontend state
+      );
+    } catch (err) {
+      logger.error(
+        { err, conversationId },
+        'Failed to persist assistant turn to DB',
+      );
+    }
+  }
+
   await channel.setTyping?.(chatJid, false);
 
   // Mark agent state as complete for reconnection recovery
@@ -701,8 +782,9 @@ async function runAgent(
 
   try {
     // Register this agent session with the queue (keyed by chatJid so piping works per-JID)
-    // Get the AbortController to allow cancellation
-    const abortController = queue.registerAgent(chatJid, sessionKey);
+    // Pass raw parameters so registerAgent computes the IPC key via getIpcKey(),
+    // ensuring sendMessage() writes to the same directory the agent reads from.
+    const abortController = queue.registerAgent(chatJid, group.folder, conversationId, workspaceId);
 
     const output = await runAgentDirect(
       group,

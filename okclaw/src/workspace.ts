@@ -5,7 +5,8 @@ import path from 'path';
 
 import Database from 'better-sqlite3';
 
-import type { Skill, Workspace } from './types.js';
+import type { AttachmentInfo, Skill, Workspace } from './types.js';
+import { MAX_FILE_SIZE, parseFile, truncateText } from './file-parser.js';
 import { parseSkillMd } from './skill-parser.js';
 
 // --- System directories that should be rejected ---
@@ -30,6 +31,89 @@ This is your workspace CLAUDE.md. The AI assistant will read this file when work
 
 You can add project-specific instructions, conventions, and context here.
 `;
+
+const IGNORED_FILE_ENTRIES = new Set([
+  '.DS_Store',
+  '.git',
+  '.hg',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.vite',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'out',
+]);
+
+const TEXT_EXTENSIONS = new Set([
+  '.c',
+  '.cc',
+  '.conf',
+  '.cpp',
+  '.cs',
+  '.css',
+  '.csv',
+  '.cjs',
+  '.env.example',
+  '.go',
+  '.h',
+  '.html',
+  '.ini',
+  '.java',
+  '.js',
+  '.json',
+  '.jsx',
+  '.log',
+  '.md',
+  '.mjs',
+  '.py',
+  '.rs',
+  '.sh',
+  '.sql',
+  '.toml',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.xml',
+  '.yaml',
+  '.yml',
+]);
+
+const DOCUMENT_EXTENSIONS = new Set(['.docx', '.xlsx', '.pdf']);
+const MAX_DIRECTORY_ENTRIES = 500;
+const MAX_TEXT_PREVIEW_BYTES = 1024 * 1024;
+
+export interface WorkspaceFileEntry {
+  name: string;
+  relativePath: string;
+  type: 'file' | 'directory';
+  size?: number;
+  mtimeMs?: number;
+  extension?: string;
+  previewable: boolean;
+}
+
+export interface WorkspaceFileList {
+  path: string;
+  parentPath: string | null;
+  entries: WorkspaceFileEntry[];
+  truncated: boolean;
+}
+
+export interface WorkspaceFilePreview {
+  relativePath: string;
+  filename: string;
+  type: 'text' | 'document' | 'binary' | 'too-large' | 'unsupported';
+  size: number;
+  mtimeMs: number;
+  content?: string;
+  extractedText?: string;
+  truncated: boolean;
+  canAttach: boolean;
+  reason?: string;
+}
 
 // --- Path validation ---
 
@@ -85,6 +169,271 @@ export function validateWorkspacePath(inputPath: string): void {
   }
 }
 
+function toWorkspaceRelativePath(filePath: string): string {
+  return filePath.split(path.sep).join('/');
+}
+
+function normalizeWorkspaceRelativePath(relativePath?: string): string {
+  const input = (relativePath || '.').trim() || '.';
+  if (input.includes('\0')) {
+    throw new Error('Invalid path: null byte is not allowed');
+  }
+  if (path.isAbsolute(input) || /^[a-zA-Z]:[\\/]/.test(input) || input.startsWith('\\\\')) {
+    throw new Error('Invalid path: only workspace-relative paths are allowed');
+  }
+  const normalized = path.normalize(input).replace(/^([.][\\/])+/, '');
+  if (normalized === '.' || normalized === '') return '.';
+  if (normalized === '..' || normalized.startsWith(`..${path.sep}`) || normalized.startsWith('../')) {
+    throw new Error('Invalid path: path escapes workspace');
+  }
+  return normalized;
+}
+
+function assertWithinWorkspace(rootRealPath: string, targetRealPath: string): void {
+  const relative = path.relative(rootRealPath, targetRealPath);
+  if (relative && (relative.startsWith('..') || path.isAbsolute(relative))) {
+    throw new Error('Path escapes workspace');
+  }
+}
+
+export function resolveWorkspaceSubpath(
+  workspacePath: string,
+  relativePath = '.',
+): { rootRealPath: string; absolutePath: string; relativePath: string } {
+  const rootRealPath = fs.realpathSync(workspacePath);
+  const normalized = normalizeWorkspaceRelativePath(relativePath);
+  const candidatePath = normalized === '.'
+    ? rootRealPath
+    : path.resolve(rootRealPath, normalized);
+  const targetRealPath = fs.realpathSync(candidatePath);
+  assertWithinWorkspace(rootRealPath, targetRealPath);
+
+  const rel = path.relative(rootRealPath, targetRealPath);
+  return {
+    rootRealPath,
+    absolutePath: targetRealPath,
+    relativePath: rel ? toWorkspaceRelativePath(rel) : '.',
+  };
+}
+
+function isIgnoredFileEntry(name: string): boolean {
+  return IGNORED_FILE_ENTRIES.has(name);
+}
+
+function isSensitiveFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (lower === '.env.example') return false;
+  if (lower === '.env' || lower.startsWith('.env.')) return true;
+  if (['.npmrc', '.pypirc', '.netrc', 'id_rsa', 'id_ed25519'].includes(lower)) return true;
+  return /\.(key|pem|p12)$/i.test(lower);
+}
+
+function isPreviewableFile(name: string, size?: number): boolean {
+  if (isSensitiveFile(name)) return false;
+  const lower = name.toLowerCase();
+  const ext = path.extname(lower);
+  if (DOCUMENT_EXTENSIONS.has(ext)) return true;
+  if (TEXT_EXTENSIONS.has(ext) || TEXT_EXTENSIONS.has(lower)) {
+    return size === undefined || size <= MAX_TEXT_PREVIEW_BYTES;
+  }
+  return false;
+}
+
+function isTextFileName(name: string): boolean {
+  const lower = name.toLowerCase();
+  return TEXT_EXTENSIONS.has(path.extname(lower)) || TEXT_EXTENSIONS.has(lower);
+}
+
+function makeWorkspaceFileId(workspaceId: string, relativePath: string): string {
+  const hash = crypto
+    .createHash('sha1')
+    .update(`${workspaceId}:${relativePath}`)
+    .digest('hex')
+    .slice(0, 16);
+  return `wf_${hash}`;
+}
+
+export function listWorkspaceFiles(
+  workspacePath: string,
+  relativeDir = '.',
+): WorkspaceFileList {
+  const resolved = resolveWorkspaceSubpath(workspacePath, relativeDir);
+  const stat = fs.statSync(resolved.absolutePath);
+  if (!stat.isDirectory()) {
+    throw new Error('Path is not a directory');
+  }
+
+  const names = fs.readdirSync(resolved.absolutePath).filter((name) => !isIgnoredFileEntry(name));
+  const limitedNames = names.slice(0, MAX_DIRECTORY_ENTRIES);
+  const entries: WorkspaceFileEntry[] = [];
+
+  for (const name of limitedNames) {
+    const fullPath = path.join(resolved.absolutePath, name);
+    try {
+      const entryStat = fs.statSync(fullPath);
+      const relativePath = resolved.relativePath === '.'
+        ? name
+        : toWorkspaceRelativePath(path.join(resolved.relativePath, name));
+      const type = entryStat.isDirectory() ? 'directory' : 'file';
+      entries.push({
+        name,
+        relativePath,
+        type,
+        size: entryStat.isFile() ? entryStat.size : undefined,
+        mtimeMs: entryStat.mtimeMs,
+        extension: entryStat.isFile() ? path.extname(name).toLowerCase() : undefined,
+        previewable: type === 'file' && isPreviewableFile(name, entryStat.size),
+      });
+    } catch {
+      // Skip entries that disappeared or cannot be read.
+    }
+  }
+
+  entries.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
+    return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  });
+
+  const parent = resolved.relativePath === '.'
+    ? null
+    : toWorkspaceRelativePath(path.dirname(resolved.relativePath));
+
+  return {
+    path: resolved.relativePath,
+    parentPath: parent === '.' ? '.' : parent,
+    entries,
+    truncated: names.length > MAX_DIRECTORY_ENTRIES,
+  };
+}
+
+export async function previewWorkspaceFile(
+  workspacePath: string,
+  relativePath: string,
+): Promise<WorkspaceFilePreview> {
+  const resolved = resolveWorkspaceSubpath(workspacePath, relativePath);
+  const stat = fs.statSync(resolved.absolutePath);
+  const filename = path.basename(resolved.absolutePath);
+
+  if (!stat.isFile()) {
+    return {
+      relativePath: resolved.relativePath,
+      filename,
+      type: 'unsupported',
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      truncated: false,
+      canAttach: false,
+      reason: '只能预览文件，不能预览目录',
+    };
+  }
+
+  if (isSensitiveFile(filename)) {
+    return {
+      relativePath: resolved.relativePath,
+      filename,
+      type: 'unsupported',
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      truncated: false,
+      canAttach: false,
+      reason: '该文件可能包含敏感凭证，已阻止预览',
+    };
+  }
+
+  const ext = path.extname(filename).toLowerCase();
+  if (DOCUMENT_EXTENSIONS.has(ext)) {
+    if (stat.size > MAX_FILE_SIZE) {
+      return {
+        relativePath: resolved.relativePath,
+        filename,
+        type: 'too-large',
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        truncated: true,
+        canAttach: false,
+        reason: '文件过大，暂不支持加入上下文',
+      };
+    }
+    const buffer = fs.readFileSync(resolved.absolutePath);
+    const parsed = await parseFile(buffer, '', filename, resolved.relativePath);
+    const truncated = parsed.text.includes('[文件内容过长，已截断');
+    return {
+      relativePath: resolved.relativePath,
+      filename,
+      type: 'document',
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      content: parsed.text,
+      extractedText: parsed.text,
+      truncated,
+      canAttach: true,
+    };
+  }
+
+  if (!isTextFileName(filename)) {
+    return {
+      relativePath: resolved.relativePath,
+      filename,
+      type: 'binary',
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      truncated: false,
+      canAttach: false,
+      reason: '该文件类型暂不支持预览',
+    };
+  }
+
+  if (stat.size > MAX_TEXT_PREVIEW_BYTES) {
+    return {
+      relativePath: resolved.relativePath,
+      filename,
+      type: 'too-large',
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      truncated: true,
+      canAttach: false,
+      reason: '文件过大，暂不支持加入上下文',
+    };
+  }
+
+  const content = fs.readFileSync(resolved.absolutePath, 'utf-8');
+  const extractedText = truncateText(content, resolved.relativePath);
+  return {
+    relativePath: resolved.relativePath,
+    filename,
+    type: 'text',
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    content: extractedText,
+    extractedText,
+    truncated: extractedText !== content,
+    canAttach: true,
+  };
+}
+
+export async function workspaceFileToAttachment(
+  workspaceId: string,
+  workspacePath: string,
+  relativePath: string,
+): Promise<AttachmentInfo> {
+  const preview = await previewWorkspaceFile(workspacePath, relativePath);
+  if (!preview.canAttach || !preview.extractedText) {
+    throw new Error(preview.reason || '该文件暂不支持加入上下文');
+  }
+
+  return {
+    fileId: makeWorkspaceFileId(workspaceId, preview.relativePath),
+    filename: preview.filename,
+    extractedText: preview.extractedText,
+    filePath: preview.relativePath,
+    source: 'workspace-file',
+    workspaceId,
+    relativePath: preview.relativePath,
+    size: preview.size,
+    truncated: preview.truncated,
+  };
+}
+
 // --- DB helpers ---
 
 function rowToWorkspace(row: {
@@ -94,6 +443,7 @@ function rowToWorkspace(row: {
   enabled_skills: string;
   created_at: string;
   last_used_at: string | null;
+  icon: string | null;
 }): Workspace {
   return {
     id: row.id,
@@ -102,6 +452,7 @@ function rowToWorkspace(row: {
     enabledSkills: JSON.parse(row.enabled_skills),
     createdAt: row.created_at,
     lastUsedAt: row.last_used_at,
+    icon: row.icon,
   };
 }
 
@@ -139,8 +490,8 @@ export function addWorkspace(
   }
 
   db.prepare(
-    `INSERT INTO workspaces (id, name, path, enabled_skills, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(id, name, resolvedPath, '[]', now, null);
+    `INSERT INTO workspaces (id, name, path, enabled_skills, icon, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, name, resolvedPath, '[]', null, now, null);
 
   return {
     id,
@@ -149,6 +500,7 @@ export function addWorkspace(
     enabledSkills: [],
     createdAt: now,
     lastUsedAt: null,
+    icon: null,
   };
 }
 
@@ -175,6 +527,7 @@ export function listWorkspaces(db: Database.Database): Workspace[] {
     enabled_skills: string;
     created_at: string;
     last_used_at: string | null;
+    icon: string | null;
   }>;
 
   // SQLite sorts NULLs first in DESC, but we want NULLs last.
@@ -214,6 +567,7 @@ export function getWorkspace(
         enabled_skills: string;
         created_at: string;
         last_used_at: string | null;
+        icon: string | null;
       }
     | undefined;
   return row ? rowToWorkspace(row) : null;
@@ -242,6 +596,7 @@ export function getWorkspaceByPath(
         enabled_skills: string;
         created_at: string;
         last_used_at: string | null;
+        icon: string | null;
       }
     | undefined;
   return row ? rowToWorkspace(row) : null;
@@ -280,6 +635,59 @@ export function getEnabledSkills(db: Database.Database, id: string): string[] {
     .get(id) as { enabled_skills: string } | undefined;
   if (!row) return [];
   return JSON.parse(row.enabled_skills);
+}
+
+/**
+ * Set the icon for a workspace.
+ *
+ * Icon value semantics:
+ * - null         → remove icon (fallback to letter avatar)
+ * - "iconify:prefix:name" → reference to an Iconify library icon
+ * - "<svg ...>...</svg>"   → custom SVG markup uploaded by user
+ *
+ * Validation:
+ * - Iconify references must follow "iconify:prefix:name" format (3 segments, all non-empty)
+ * - Custom SVG must start with "<svg" and end with "</svg>"
+ * - Custom SVG is sanitized: rejects <script> tags and inline event handlers (onload, onclick, onerror)
+ * - Icon content must not exceed 64KB
+ */
+export function setWorkspaceIcon(
+  db: Database.Database,
+  id: string,
+  icon: string | null,
+): void {
+  // Treat empty string as null (clear icon)
+  if (icon === '') icon = null;
+
+  if (icon !== null) {
+    // Size limit
+    if (icon.length > 65536) {
+      throw new Error('SVG content too large (max 64KB)');
+    }
+
+    if (icon.startsWith('iconify:')) {
+      // Validate iconify reference format: iconify:prefix:name
+      const parts = icon.split(':');
+      if (parts.length !== 3 || !parts[1] || !parts[2]) {
+        throw new Error('Invalid iconify reference format. Expected: iconify:prefix:name');
+      }
+    } else {
+      // Validate SVG markup
+      const trimmed = icon.trim();
+      if (!trimmed.startsWith('<svg') || !trimmed.endsWith('</svg>')) {
+        throw new Error('Invalid SVG markup. Must start with <svg and end with </svg>');
+      }
+      // Sanitize: reject SVGs with script tags or any inline event handlers.
+      // The on\w+= pattern catches all on* attributes (onload, onclick, onerror,
+      // onmouseover, onfocus, onblur, onbegin, onend, etc.)
+      const lower = trimmed.toLowerCase();
+      if (lower.includes('<script') || /\bon\w+\s*=/i.test(trimmed)) {
+        throw new Error('SVG contains disallowed script content');
+      }
+    }
+  }
+
+  db.prepare('UPDATE workspaces SET icon = ? WHERE id = ?').run(icon, id);
 }
 
 // --- CLAUDE.md I/O ---

@@ -1,0 +1,119 @@
+{
+  "name": "okclaw-desktop",
+  "version": "2.0.0",
+  "description": "OKClaw 桌面端（Electron 外壳，内嵌 Node 后端 + Web 前端，完全离线自包含）",
+  "main": "main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:pkg": "electron-builder --arm64 --mac pkg",
+    "dist:dmg": "electron-builder --arm64 --mac dmg"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.okclaw.desktop",
+    "productName": "OKClaw",
+    "copyright": "Copyright © OKClaw",
+    "directories": {
+      "output": "out",
+      "buildResources": "."
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "package.json"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "extraResources": [
+      {
+        "from": "../dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "../node_modules",
+        "to": "backend/node_modules",
+        "filter": [
+          "**/*",
+          "!**/*.md",
+          "!**/*.markdown",
+          "!**/*.tsbuildinfo",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/.bin/**",
+          "!**/.github/**",
+          "!**/docs/**"
+        ]
+      },
+      {
+        "from": "../store/public",
+        "to": "backend/store/public"
+      },
+      {
+        "from": "../skills",
+        "to": "backend/skills"
+      },
+      {
+        "from": "../package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "./seed",
+        "to": "seed"
+      },
+      {
+        "from": "./bin",
+        "to": "node/bin",
+        "filter": ["node"]
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "pkg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "icon.icns",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "darkModeSupport": true
+    },
+    "pkg": {
+      "allowAnywhere": false,
+      "allowCurrentUserHome": false,
+      "allowRootDirectory": true,
+      "isRelocatable": false,
+      "overwriteAction": "upgrade",
+      "installLocation": "/Applications"
+    },
+    "dmg": {
+      "title": "OKClaw",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}

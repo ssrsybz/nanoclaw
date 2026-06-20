@@ -35,7 +35,7 @@
 
 ## 密钥 / 凭证
 
-LLM 凭证（模型、API Key、Base URL）由 `~/.claude/settings.json`（Claude CLI 配置）统一管理。项目 `.env` 仅存放非 LLM 密钥（如飞书机器人 Token）。部署时通过脚本将 LLM 配置同步到 `~/.claude/settings.json` 的 env 块即可。
+LLM 凭证（模型、API Key、Base URL）优先使用项目 `.env` 中的 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`、`MODEL`；未配置时回退到 `~/.claude/settings.json` 的 env 块。Agent SDK 子进程会使用独立 `CLAUDE_CONFIG_DIR`，并剥离宿主进程的 `ANTHROPIC_*` 环境变量，避免宿主 Claude Code 配置和 OKClaw 项目对话互相污染。项目 `.env` 仍可存放频道密钥（如飞书机器人 Token）。
 
 ## Web 前端
 
@@ -50,6 +50,19 @@ npm run build        # 编译后端 + 构建前端
 ```
 
 访问地址：http://localhost:3100
+
+## 桌面端打包（macOS）
+
+整个打包流程在**独立的 `desktop/` 目录**里自治，与主项目源码解耦，产出完全离线自包含的 `.pkg` / `.dmg`。详见 `desktop/README.md` 和 `/build-desktop` 技能。
+
+```bash
+cd desktop && bash build.sh     # 一键打包，产出 desktop/out/OKClaw-<v>-arm64.pkg + .dmg
+```
+
+架构：Electron 主进程（`desktop/main.cjs`）只开窗口；后端 Node 服务 + Claude Agent SDK 用**独立 node 二进制**（`desktop/bin/node`）作为子进程跑。**绝对不能要点**：
+- 后端必须用独立 node 跑，**不用 Electron 二进制 + `ELECTRON_RUN_AS_NODE`**（否则发消息时 macOS 反复弹可见终端窗口）。
+- `better-sqlite3` 针对独立 node 的 ABI（127）重编译，`desktop/package.json` 里 `"npmRebuild": false`。
+- `.env` 含真实密钥，绝不打包；只带 `desktop/seed/.env.template`，首运行 seed 到 `~/Library/Application Support/OKClaw`。
 
 ## 技能
 
@@ -109,7 +122,7 @@ systemctl --user restart okclaw
 
 ### LLM 配置
 
-LLM 提供商（模型、API Key、Base URL）完全通过 Claude CLI 的 `~/.claude/settings.json` env 块配置。SDK 子进程继承此配置。项目 `.env` 不覆盖 LLM 设置，避免项目级和用户级 Claude 环境之间的冲突。
+LLM 提供商（模型、API Key、Base URL）优先通过项目 `.env` 配置：`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`、`MODEL`。未配置时回退到 `~/.claude/settings.json` 的 env 块。Agent SDK 子进程使用 `data/claude-config` 作为独立 `CLAUDE_CONFIG_DIR`，并剥离宿主进程的 `ANTHROPIC_*` 环境变量；宿主 Claude Code 可以继续使用自己的配置，OKClaw 项目对话使用项目配置。
 
 ### 文件附件
 

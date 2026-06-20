@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 
-import { DATA_DIR, MAX_CONCURRENT_AGENTS } from './config.js';
+import { MAX_CONCURRENT_AGENTS } from './config.js';
+import { getIpcKey, getIpcInputDir } from './ipc-path.js';
 import { logger } from './logger.js';
 
 interface QueuedTask {
@@ -19,7 +20,8 @@ interface GroupState {
   runningTaskId: string | null;
   pendingMessages: boolean;
   pendingTasks: QueuedTask[];
-  groupFolder: string | null;
+  /** IPC key for routing follow-up messages (computed via getIpcKey) */
+  ipcKey: string | null;
   retryCount: number;
   // Track the conversationId currently being processed
   activeConversationId: string | null;
@@ -45,7 +47,7 @@ export class GroupQueue {
         runningTaskId: null,
         pendingMessages: false,
         pendingTasks: [],
-        groupFolder: null,
+        ipcKey: null,
         retryCount: 0,
         activeConversationId: null,
         abortController: null,
@@ -82,13 +84,13 @@ export class GroupQueue {
   }
 
   /**
-   * Get the session key of the active agent for a group, if any.
+   * Get the IPC key of the active agent for a group, if any.
    * Returns null if no agent is currently active.
    */
   getActiveSessionKey(groupJid: string): string | null {
     const state = this.groups.get(groupJid);
     if (!state || !state.active) return null;
-    return state.groupFolder ?? null;
+    return state.ipcKey ?? null;
   }
 
   /**
@@ -189,13 +191,20 @@ export class GroupQueue {
 
   /**
    * Register an active agent session for a group.
+   * Computes the IPC key from the raw parameters so that sendMessage()
+   * writes to the same directory the agent reads from.
    * Returns the AbortController that can be used to cancel the agent.
    */
-  registerAgent(groupJid: string, groupFolder?: string): AbortController {
+  registerAgent(
+    groupJid: string,
+    groupFolder: string,
+    conversationId?: string,
+    workspaceId?: string,
+  ): AbortController {
     const state = this.getGroup(groupJid);
     state.active = true;
     state.isTaskAgent = false;
-    if (groupFolder) state.groupFolder = groupFolder;
+    state.ipcKey = getIpcKey(groupFolder, conversationId, workspaceId);
     // Create a new AbortController for this agent session
     state.abortController = new AbortController();
     this.activeCount++;
@@ -208,7 +217,7 @@ export class GroupQueue {
   unregisterAgent(groupJid: string): void {
     const state = this.getGroup(groupJid);
     state.active = false;
-    state.groupFolder = null;
+    state.ipcKey = null;
     state.abortController = null;
     this.activeCount--;
     this.drainGroup(groupJid);
@@ -221,9 +230,9 @@ export class GroupQueue {
    */
   sendMessage(groupJid: string, text: string): boolean {
     const state = this.getGroup(groupJid);
-    if (!state.active || !state.groupFolder || state.isTaskAgent) return false;
+    if (!state.active || !state.ipcKey || state.isTaskAgent) return false;
 
-    const inputDir = path.join(DATA_DIR, 'ipc', state.groupFolder, 'input');
+    const inputDir = getIpcInputDir(state.ipcKey);
     try {
       fs.mkdirSync(inputDir, { recursive: true });
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`;
@@ -266,7 +275,7 @@ export class GroupQueue {
       this.scheduleRetry(groupJid, state);
     } finally {
       state.active = false;
-      state.groupFolder = null;
+      state.ipcKey = null;
       state.activeConversationId = null;
       this.activeCount--;
       this.drainGroup(groupJid);
@@ -293,7 +302,7 @@ export class GroupQueue {
       state.active = false;
       state.isTaskAgent = false;
       state.runningTaskId = null;
-      state.groupFolder = null;
+      state.ipcKey = null;
       this.activeCount--;
       this.drainGroup(groupJid);
     }

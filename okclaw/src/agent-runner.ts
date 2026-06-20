@@ -17,6 +17,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath } from './group-folder.js';
+import { getIpcKey, getIpcInputDir } from './ipc-path.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 import { pushStatus } from './star-office-reporter.js';
@@ -216,6 +217,43 @@ function loadClaudeEnv(): {
 const OUTPUT_START_MARKER = '---OKCLAW_OUTPUT_START---';
 const OUTPUT_END_MARKER = '---OKCLAW_OUTPUT_END---';
 
+/**
+ * Detect upstream "overloaded" errors that some third-party gateways surface as
+ * a 529 with a vendor-specific body — e.g. GLM/Zhipu returns
+ * `[1305][该模型当前访问量过大...]`. The Claude Agent SDK swallows the APIError
+ * and re-emits it as an assistant text chunk, so it never reaches our catch
+ * block. We must intercept it in the message stream and retry the turn.
+ */
+const OVERLOAD_PATTERNS: RegExp[] = [
+  /API Error:\s*529/i,
+  /overloaded_error/i,
+  /\b1305\b/,
+  /访问量过大/,
+];
+
+function detectOverload(text: string): boolean {
+  if (!text) return false;
+  return OVERLOAD_PATTERNS.some((re) => re.test(text));
+}
+
+// Retries for transient upstream overload (529 / GLM 1305).
+const MAX_OVERLOAD_RETRIES = 3;
+const OVERLOAD_BASE_DELAY_MS = 2_000; // 2s, 4s, 8s (exponential)
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error('aborted'));
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t);
+        reject(new Error('aborted'));
+      },
+      { once: true },
+    );
+  });
+}
+
 export interface AgentInput {
   prompt: string;
   sessionId?: string;
@@ -253,7 +291,9 @@ export interface AgentOutput {
     | 'tool_use'
     | 'tool_result'
     | 'result'
-    | 'ask_user_question';
+    | 'ask_user_question'
+    | 'text_delta'
+    | 'thinking_delta';
   streamData?: {
     text?: string;
     thinking?: string;
@@ -261,6 +301,7 @@ export interface AgentOutput {
     toolName?: string;
     toolInput?: string;
     toolOutput?: string;
+    toolResponse?: unknown;
     toolMeta?: import('./types.js').ToolMeta;
     // For ask_user_question
     questions?: import('./types.js').Question[];
@@ -631,8 +672,11 @@ export async function runAgentDirect(
   const stream = new MessageStream();
   stream.push(prompt);
 
-  // IPC input watcher - poll for follow-up messages
-  const inputDir = path.join(DATA_DIR, 'ipc', input.groupFolder, 'input');
+  // IPC input watcher - poll for follow-up messages.
+  // Uses getIpcKey/getIpcInputDir to compute the same directory that
+  // group-queue.sendMessage() writes to — both sides must agree on the path.
+  const ipcKey = getIpcKey(input.groupFolder, input.conversationId, input.workspaceId);
+  const inputDir = getIpcInputDir(ipcKey);
   const processedFiles = new Set<string>();
   let inputCheckInterval: NodeJS.Timeout | null = null;
 
@@ -742,9 +786,12 @@ export async function runAgentDirect(
     const mcpServerPath = path.join(distDir, 'mcp-stdio.js');
 
     // Build MCP config: only enable when the server binary exists
-    // Remove CLAUDECODE to allow nested Claude Code execution
-    // Set CLAUDE_CONFIG_DIR for isolation from host Claude Code instance
-    const { CLAUDECODE: _, ...envWithoutClaudeCode } = process.env;
+    // Remove CLAUDECODE to allow nested Claude Code execution.
+    // Remove all host Anthropic env so OKClaw's project LLM config is isolated
+    // from the Claude Code instance used on the host.
+    const { CLAUDECODE: _, ...envWithoutClaudeCode } = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('ANTHROPIC_')),
+    );
 
     // Ensure isolated config directory exists
     fs.mkdirSync(CLAUDE_ISOLATED_CONFIG_DIR, { recursive: true });
@@ -875,20 +922,35 @@ export async function runAgentDirect(
       return { behavior: 'allow', updatedInput: toolInput };
     };
 
+    // Retry loop: some gateways (GLM/Zhipu) return a 529 overload mid-turn,
+    // which the SDK surfaces as assistant text rather than throwing. We detect
+    // it in the stream, abort the current attempt, wait with exponential
+    // backoff, then resume the same session. resumeSessionForRetry tracks the
+    // latest known session id so a retry continues the conversation.
+    let resumeSessionForRetry = sessionId;
+    let overloadRetry = 0;
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let overloadedThisAttempt = false;
     for await (const message of query({
       prompt: prompt,
       options: {
         cwd: groupDir,
         additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
-        resume: sessionId,
+        // Emit token-level stream events (content_block_delta) for real-time
+        // typing-style UI. Full AssistantMessage blocks are still emitted after
+        // each content block, so accumulation/persistence logic is unaffected.
+        includePartialMessages: true,
+        resume: resumeSessionForRetry,
         resumeSessionAt: undefined,
         systemPrompt: systemPrompt,
         allowedTools,
         env: {
-          // Load from settings.json to ensure API credentials are available
-          // even when the shell doesn't have ANTHROPIC_* vars injected
-          ...claudeEnv,
           ...isolatedEnv,
+          // Load OKClaw LLM config after host env isolation so project .env can
+          // override the host Claude Code provider without affecting it.
+          ...claudeEnv,
           // Keep debug on for diagnostics (remove in production)
           DEBUG_CLAUDE_AGENT_SDK: '1',
         },
@@ -927,6 +989,56 @@ export async function runAgentDirect(
       }
 
       messageCount++;
+
+      // Forward token-level deltas for real-time typing-style UI.
+      // These are fire-and-forget to the frontend only: they do NOT touch
+      // apiCallCounts, turnParts, or any persistence path. The full
+      // AssistantMessage branch below remains the source of truth for
+      // accumulation and stats.
+      if (
+        message.type === 'stream_event' &&
+        onOutput &&
+        (message as { event?: { type?: string; delta?: { type?: string } } })
+          .event
+      ) {
+        const evt = (
+          message as {
+            event: {
+              type: string;
+              delta?: {
+                type?: string;
+                text?: string;
+                thinking?: string;
+              };
+            };
+          }
+        ).event;
+        if (evt.type === 'content_block_delta' && evt.delta) {
+          if (evt.delta.type === 'text_delta' && evt.delta.text) {
+            await onOutput({
+              status: 'success',
+              result: null,
+              newSessionId,
+              streamType: 'text_delta',
+              streamData: { text: evt.delta.text },
+            });
+          } else if (
+            evt.delta.type === 'thinking_delta' &&
+            evt.delta.thinking
+          ) {
+            await onOutput({
+              status: 'success',
+              result: null,
+              newSessionId,
+              streamType: 'thinking_delta',
+              streamData: { thinking: evt.delta.thinking },
+            });
+          }
+          // input_json_delta / signature_delta: ignored (tool input is emitted
+          // in full at content_block_stop via the assistant branch below).
+        }
+      }
+
       const msgType =
         message.type === 'system'
           ? `system/${(message as { subtype?: string }).subtype}`
@@ -956,6 +1068,14 @@ export async function runAgentDirect(
             }>;
           };
         };
+        if (assistantMsg.message?.content) {
+          // Upstream overload (529 / GLM 1305) is surfaced as assistant text
+          // by the SDK, not thrown. Detect it, then break to retry the turn.
+          overloadedThisAttempt = assistantMsg.message.content.some(
+            (part) => part.type === 'text' && part.text && detectOverload(part.text),
+          );
+          if (overloadedThisAttempt) break;
+        }
         if (onOutput && assistantMsg.message?.content) {
           for (const part of assistantMsg.message.content) {
             if (part.type === 'text' && part.text) {
@@ -1038,6 +1158,7 @@ export async function runAgentDirect(
                   streamType: 'tool_result',
                   streamData: {
                     toolOutput: text,
+                    toolResponse: part.content,
                     toolMeta: {
                       icon: '📋',
                       displayText: '执行结果',
@@ -1100,6 +1221,35 @@ export async function runAgentDirect(
           await onOutput(output);
         }
       }
+    }
+        // for-await exited: either success or an overload broke out of it.
+        if (!overloadedThisAttempt) break; // clean finish → done
+        if (overloadRetry >= MAX_OVERLOAD_RETRIES) {
+          logger.warn(
+            { group: group.name, retries: overloadRetry },
+            'Overload retries exhausted',
+          );
+          break; // give up; the 529 text was already streamed to the UI
+        }
+        resumeSessionForRetry = newSessionId || resumeSessionForRetry;
+        const delayMs = OVERLOAD_BASE_DELAY_MS * 2 ** overloadRetry;
+        overloadRetry++;
+        logger.info(
+          { group: group.name, retry: overloadRetry, delayMs },
+          'Overload detected, backing off before retry',
+        );
+        if (onOutput) {
+          await onOutput({
+            status: 'success',
+            result: null,
+            newSessionId,
+            streamType: 'text_delta',
+            streamData: {
+              text: `\n\n_⏳ 上游模型繁忙（529），${(delayMs / 1000).toFixed(0)}s 后自动重试（${overloadRetry}/${MAX_OVERLOAD_RETRIES}）…_\n\n`,
+            },
+          });
+        }
+        await sleep(delayMs, input.abortSignal); // rejects on abort → outer catch reports cancel
     }
 
     // Calculate total API calls (excluding tool_result which are local executions)

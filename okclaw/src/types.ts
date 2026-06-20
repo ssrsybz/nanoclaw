@@ -12,6 +12,12 @@ export interface AttachmentInfo {
   filename: string;
   extractedText: string;
   filePath: string;
+  source?: 'upload' | 'workspace-file';
+  workspaceId?: string;
+  relativePath?: string;
+  mimeType?: string;
+  size?: number;
+  truncated?: boolean;
 }
 
 export interface NewMessage {
@@ -88,7 +94,9 @@ export interface StreamMessage {
     | 'stream_start'
     | 'stream_end'
     | 'conversation_renamed'
-    | 'ask_user_question';
+    | 'ask_user_question'
+    | 'text_delta'
+    | 'thinking_delta';
   content?: string;
   toolName?: string;
   toolInput?: string;
@@ -97,6 +105,8 @@ export interface StreamMessage {
   toolMeta?: ToolMeta;
   workspaceId?: string | null;
   conversationId?: string | null;
+  // Pre-generated message id for stable frontend state (prevents DOM re-mount)
+  messageId?: string;
   model?: string;
   apiCalls?: {
     total: number;
@@ -182,6 +192,8 @@ export interface Workspace {
   enabledSkills: string[];
   createdAt: string;
   lastUsedAt: string | null;
+  /** Workspace avatar: null = no icon, "iconify:prefix:name" = library icon, "<svg...>" = custom SVG */
+  icon: string | null;
 }
 
 export type SkillCategory = 'core' | 'mcp' | 'channel' | 'system' | 'workspace';

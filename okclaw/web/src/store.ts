@@ -42,6 +42,8 @@ export interface Workspace {
   enabledSkills: string[];
   createdAt: string;
   lastUsedAt: string | null;
+  /** Workspace avatar: null = no icon, "iconify:prefix:name" = library icon, "<svg...>" = custom SVG */
+  icon: string | null;
 }
 
 export interface Skill {
@@ -104,6 +106,31 @@ function sortConversations(conversations: Conversation[]): Conversation[] {
     // id DESC as final tiebreaker
     return b.id.localeCompare(a.id);
   });
+}
+
+/**
+ * Find the workspaceId that contains a given conversationId.
+ * Used by touchWorkspace to promote the workspace when a message arrives.
+ */
+function findWorkspaceIdForConversation(conversations: Record<string, Conversation[]>, conversationId: string): string | null {
+  for (const [wsId, convs] of Object.entries(conversations)) {
+    if (convs.some((c) => c.id === conversationId)) return wsId;
+  }
+  return null;
+}
+
+/**
+ * Promote a workspace to the top of the sidebar (WeChat-style).
+ * Updates lastUsedAt to now and re-sorts the workspace list.
+ */
+function touchWorkspace(state: { workspaces: Workspace[]; conversations: Record<string, Conversation[]> }, conversationId: string): { workspaces: Workspace[] } | null {
+  const wsId = findWorkspaceIdForConversation(state.conversations, conversationId);
+  if (!wsId) return null;
+  const now = new Date().toISOString();
+  const updated = state.workspaces.map((ws) =>
+    ws.id === wsId ? { ...ws, lastUsedAt: now } : ws
+  );
+  return { workspaces: sortWorkspaces(updated) };
 }
 
 // Rich message content parts
@@ -180,7 +207,38 @@ export interface AttachmentInfo {
   filename: string;
   extractedText: string;
   filePath: string;
+  source?: 'upload' | 'workspace-file';
+  workspaceId?: string;
+  relativePath?: string;
+  mimeType?: string;
+  size?: number;
+  truncated?: boolean;
 }
+
+export interface ProjectFileEntry {
+  name: string;
+  relativePath: string;
+  type: 'file' | 'directory';
+  size?: number;
+  mtimeMs?: number;
+  extension?: string;
+  previewable: boolean;
+}
+
+export interface ProjectFilePreview {
+  relativePath: string;
+  filename: string;
+  type: 'text' | 'document' | 'binary' | 'too-large' | 'unsupported';
+  size: number;
+  mtimeMs: number;
+  content?: string;
+  extractedText?: string;
+  truncated: boolean;
+  canAttach: boolean;
+  reason?: string;
+}
+
+export type ResourcePanelTab = 'skills' | 'files' | 'context';
 
 export interface ChatMessage {
   id?: string;
@@ -236,8 +294,9 @@ interface WorkspaceStore {
   skillsByCategory: Record<SkillCategory, Skill[]>;
 
   // Streaming thinking — lives outside messages array, like Claude Code's approach
-  streamingThinking: StreamingThinking | null;
-  setStreamingThinking: (f: ((current: StreamingThinking | null) => StreamingThinking | null) | StreamingThinking | null) => void;
+  // Keyed by conversationId to support concurrent agents in multiple conversations
+  streamingThinking: Record<string, StreamingThinking | null>;
+  setStreamingThinking: (f: ((current: Record<string, StreamingThinking | null>) => Record<string, StreamingThinking | null>) | Record<string, StreamingThinking | null>) => void;
 
   // Pending question from agent (AskUserQuestion tool)
   pendingQuestion: PendingQuestion | null;
@@ -252,12 +311,24 @@ interface WorkspaceStore {
   // LLM Config
   llmConfig: LLMConfig | null;
 
+  // Right resource panel
+  resourcePanelTab: ResourcePanelTab;
+  contextAttachments: AttachmentInfo[];
+
   // Workspace methods
   setConnected: (v: boolean) => void;
   fetchWorkspaces: () => Promise<void>;
   addWorkspace: (path?: string) => Promise<void>;
   removeWorkspace: (id: string) => Promise<void>;
   switchWorkspace: (id: string) => Promise<void>;
+  /** Set or clear workspace avatar icon */
+  updateWorkspaceIcon: (id: string, icon: string | null) => Promise<void>;
+
+  // Resource panel methods
+  setResourcePanelTab: (tab: ResourcePanelTab) => void;
+  addContextAttachment: (attachment: AttachmentInfo) => void;
+  removeContextAttachment: (fileId: string) => void;
+  clearContextAttachments: () => void;
 
   // Skill methods
   fetchSkills: () => Promise<void>;
@@ -278,9 +349,11 @@ interface WorkspaceStore {
   appendMessage: (conversationId: string, msg: ChatMessage) => void;
   /** Append a content part to the last assistant message */
   appendPart: (conversationId: string, part: ContentPart) => void;
+  /** Append a text token delta to the last assistant message's last text part */
+  appendToTextPart: (conversationId: string, delta: string) => void;
   clearMessages: (conversationId: string) => void;
   /** Start a new assistant turn (create or reuse incomplete turn) */
-  startAssistantTurn: (conversationId: string) => void;
+  startAssistantTurn: (conversationId: string, messageId?: string) => void;
   /** Mark the current assistant turn as complete */
   finishAssistantTurn: (conversationId: string, model?: string, apiCalls?: ChatMessage['apiCalls']) => void;
   /** Mark all thinking parts in the current turn as complete */
@@ -302,145 +375,6 @@ const emptySkillsByCategory: Record<SkillCategory, Skill[]> = {
 // ============ Streaming Message Persistence ============
 // Borrowed from Claude Code's approach: batch persist every 500ms
 
-interface PendingPersist {
-  conversationId: string;
-  messageId: string | null; // null means we need to create a new message
-  content: string;
-  parts: ContentPart[];
-}
-
-// Pending persists keyed by conversationId
-const pendingPersists = new Map<string, PendingPersist>();
-let persistTimer: ReturnType<typeof setInterval> | null = null;
-
-/**
- * Queue a message for persistence. Called on every appendPart.
- * The actual persist happens every 500ms via batchPersist.
- */
-function queuePersist(conversationId: string, content: string, parts: ContentPart[]) {
-  pendingPersists.set(conversationId, {
-    conversationId,
-    messageId: null, // Will be resolved during persist
-    content,
-    parts,
-  });
-
-  // Start timer if not running
-  if (!persistTimer) {
-    persistTimer = setInterval(batchPersist, 500);
-  }
-}
-
-/**
- * Update the ID of the last assistant message in the frontend state.
- * Called after batchPersist creates a new message.
- */
-function updateLastAssistantId(conversationId: string, messageId: string) {
-  const msgs = useStore.getState().messages[conversationId] || [];
-  const lastIdx = [...msgs].reverse().findIndex(m => m.role === 'assistant' && !m._turnComplete);
-  if (lastIdx === -1) return;
-
-  const actualIdx = msgs.length - 1 - lastIdx;
-  useStore.setState((state) => ({
-    messages: {
-      ...state.messages,
-      [conversationId]: [
-        ...msgs.slice(0, actualIdx),
-        { ...msgs[actualIdx], id: messageId },
-        ...msgs.slice(actualIdx + 1),
-      ],
-    },
-  }));
-}
-
-/**
- * Batch persist all pending messages to backend.
- * Uses fire-and-forget to avoid blocking the UI.
- */
-async function batchPersist() {
-  if (pendingPersists.size === 0) {
-    if (persistTimer) {
-      clearInterval(persistTimer);
-      persistTimer = null;
-    }
-    return;
-  }
-
-  // Take a snapshot of pending persists
-  const entries = Array.from(pendingPersists.entries());
-  pendingPersists.clear();
-
-  for (const [conversationId, pending] of entries) {
-    try {
-      // Check frontend state to determine PATCH vs POST
-      const msgs = useStore.getState().messages[conversationId] || [];
-      const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
-
-      // Check if the current turn already has a backend message ID
-      const hasBackendId = lastAssistant && !lastAssistant._turnComplete && lastAssistant.id;
-
-      // Determine if we should PATCH or POST based on _turnComplete
-      // If the last assistant message is complete (_turnComplete=true), we must create a new message
-      // If it's not complete and has no id, we're in the same turn but need to create backend message first
-      const shouldCreateNew = !lastAssistant || lastAssistant._turnComplete === true || !hasBackendId;
-
-      if (shouldCreateNew && !hasBackendId) {
-        // Create new message
-        const { conversations } = useStore.getState();
-        let workspaceId: string | null = null;
-        for (const [wsId, convList] of Object.entries(conversations)) {
-          if (convList.some(c => c.id === conversationId)) {
-            workspaceId = wsId;
-            break;
-          }
-        }
-        if (!workspaceId) continue;
-
-        const createRes = await fetch(`/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            role: 'assistant',
-            content: pending.content,
-            parts: pending.parts,
-          }),
-        });
-        const createData = await createRes.json();
-        // Update frontend state with the new message ID
-        if (createData.message?.id) {
-          updateLastAssistantId(conversationId, createData.message.id);
-        }
-      } else {
-        // PATCH to existing message
-        const messageId = lastAssistant?.id;
-        if (messageId) {
-          await fetch(`/api/conversations/${conversationId}/messages/${messageId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              content: pending.content,
-              parts: pending.parts,
-            }),
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Failed to persist streaming message:', err);
-    }
-  }
-}
-
-/**
- * Stop the persist timer (call on stream_end or component unmount)
- * Currently unused but kept for future use
- */
-export function stopPersistTimer() {
-  if (persistTimer) {
-    clearInterval(persistTimer);
-    persistTimer = null;
-  }
-}
-
 export const useStore = create<WorkspaceStore>((set, get) => ({
   // Initial state
   workspaces: [],
@@ -451,11 +385,13 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
   skills: [],
   systemSkills: [],
   skillsByCategory: emptySkillsByCategory,
-  streamingThinking: null,
+  streamingThinking: {},
   pendingQuestion: null,
   connected: false,
   typingConversations: {},
   llmConfig: null,
+  resourcePanelTab: 'skills',
+  contextAttachments: [],
 
   setStreamingThinking: (f) =>
     set((state) => ({
@@ -483,6 +419,13 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
     typingConversations: { ...state.typingConversations, [conversationId]: v },
   })),
   isTyping: (conversationId) => get().typingConversations[conversationId] || false,
+
+  setResourcePanelTab: (tab) => set({ resourcePanelTab: tab }),
+  addContextAttachment: (attachment) => set({ contextAttachments: [attachment] }),
+  removeContextAttachment: (fileId) => set((state) => ({
+    contextAttachments: state.contextAttachments.filter((a) => a.fileId !== fileId),
+  })),
+  clearContextAttachments: () => set({ contextAttachments: [] }),
 
   // --- Workspace methods ---
 
@@ -528,6 +471,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
             activeWorkspaceId: ws.id,
             activeConversationId: null,
             messages: {},
+            contextAttachments: [],
           };
         });
         await get().fetchSkills();
@@ -553,6 +497,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
           activeConversationId: isActive ? null : state.activeConversationId,
           skills: isActive ? [] : state.skills,
           messages: isActive ? {} : state.messages,
+          contextAttachments: isActive ? [] : state.contextAttachments,
         };
       });
     } catch (err) {
@@ -562,7 +507,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
 
   switchWorkspace: async (id) => {
     // Only switch workspace, don't clear messages
-    set({ activeWorkspaceId: id, activeConversationId: null });
+    set({ activeWorkspaceId: id, activeConversationId: null, contextAttachments: [] });
     try {
       await fetch(`/api/workspaces/${id}/last-used`, { method: 'PUT' });
     } catch {
@@ -578,6 +523,32 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       await get().switchConversation(convs[0].id);
     } else {
       await get().createConversation(id);
+    }
+  },
+
+  updateWorkspaceIcon: async (id, icon) => {
+    try {
+      const res = await fetch(`/api/workspaces/${id}/icon`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ icon }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        console.error('Failed to update workspace icon:', data.error);
+        return;
+      }
+      const data = await res.json();
+      if (data.workspace) {
+        set((state) => {
+          const newWorkspaces = state.workspaces.map((ws) =>
+            ws.id === id ? { ...ws, icon: data.workspace.icon } : ws
+          );
+          return { workspaces: sortWorkspaces(newWorkspaces) };
+        });
+      }
+    } catch (err) {
+      console.error('Failed to update workspace icon:', err);
     }
   },
 
@@ -665,6 +636,22 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
           [workspaceId]: sorted,
         },
       }));
+
+      // Fetch running agent states so the sidebar can show which conversations
+      // are still executing in the background.
+      try {
+        const stRes = await fetch(`/api/workspaces/${workspaceId}/agent-states`);
+        const stData = await stRes.json();
+        const running: Record<string, boolean> = {};
+        for (const [convId, status] of Object.entries(stData.agentStates || {})) {
+          if (status === 'running') running[convId] = true;
+        }
+        set((state) => ({
+          typingConversations: { ...state.typingConversations, ...running },
+        }));
+      } catch (err) {
+        console.error('Failed to fetch agent states:', err);
+      }
     } catch (err) {
       console.error('Failed to fetch conversations:', err);
     }
@@ -714,6 +701,18 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       conversationId,
     });
 
+    // Request reconnection recovery so a conversation that is still running in the
+    // background (or already completed while we were elsewhere) replays any missed
+    // messages or reports its final state.
+    const msgs = get().messages[conversationId] || [];
+    const lastAssistant = [...msgs].reverse().find((m) => m.role === 'assistant');
+    const lastReceivedIndex = lastAssistant?.parts?.length || 0;
+    sendWsMessage({
+      type: 'resume',
+      conversationId,
+      lastReceivedIndex,
+    });
+
     try {
       const res = await fetch(`/api/workspaces/${activeWorkspaceId}/conversations/${conversationId}/messages`);
       const data = await res.json();
@@ -736,6 +735,20 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
               apiCalls: existing?.apiCalls || m.apiCalls || undefined,
             };
           });
+          // Preserve an in-flight (no id, not yet completed) assistant turn
+          // being driven by the live WebSocket / resume replay. Without this,
+          // the DB fetch (which only contains completed turns) would overwrite
+          // the running turn, causing the streaming process to "disappear then
+          // reappear" when reconnecting mid-turn.
+          const lastExisting = existingMessages[existingMessages.length - 1];
+          if (
+            lastExisting &&
+            lastExisting.role === 'assistant' &&
+            !lastExisting._turnComplete &&
+            !lastExisting.id
+          ) {
+            mergedMessages.push(lastExisting);
+          }
           return {
             messages: {
               ...state.messages,
@@ -805,6 +818,7 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
 
   appendMessage: (conversationId, msg) =>
     set((state) => ({
+      ...(touchWorkspace(state, conversationId) || {}),
       messages: {
         ...state.messages,
         [conversationId]: [...(state.messages[conversationId] || []), msg],
@@ -846,15 +860,55 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
           ? (lastMsg.content || '') + part.text
           : lastMsg.content;
 
-      // Queue for persistence (fire-and-forget)
-      queuePersist(conversationId, updatedContent, updatedParts);
-
+      // Note: persistence is handled by the backend at stream_end — the frontend
+      // only keeps the local display state in sync here.
       return {
         messages: {
           ...state.messages,
           [conversationId]: [
             ...msgs.slice(0, -1),
             { ...lastMsg, content: updatedContent, parts: updatedParts },
+          ],
+        },
+      };
+    });
+  },
+
+  appendToTextPart: (conversationId, delta) => {
+    if (!delta) return;
+    set((state) => {
+      const msgs = state.messages[conversationId] || [];
+      if (msgs.length === 0) return state;
+
+      const lastMsg = msgs[msgs.length - 1];
+      if (lastMsg.role !== 'assistant' || lastMsg._turnComplete) return state;
+
+      const parts = [...(lastMsg.parts || [])];
+      // Find the last text part to append to; create one if none exists.
+      let lastTextIdx = -1;
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (parts[i].type === 'text') {
+          lastTextIdx = i;
+          break;
+        }
+      }
+      if (lastTextIdx >= 0) {
+        const tp = parts[lastTextIdx] as TextPart;
+        parts[lastTextIdx] = { ...tp, text: tp.text + delta };
+      } else {
+        parts.push({ type: 'text', text: delta });
+      }
+
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [
+            ...msgs.slice(0, -1),
+            {
+              ...lastMsg,
+              content: (lastMsg.content || '') + delta,
+              parts,
+            },
           ],
         },
       };
@@ -869,30 +923,36 @@ export const useStore = create<WorkspaceStore>((set, get) => ({
       },
     })),
 
-  startAssistantTurn: (conversationId) =>
+  startAssistantTurn: (conversationId, messageId?: string) =>
     set((state) => {
       const msgs = state.messages[conversationId] || [];
       // If last message is an incomplete assistant turn, reuse it
       const lastMsg = msgs[msgs.length - 1];
       if (lastMsg?.role === 'assistant' && !lastMsg._turnComplete) {
-        return state; // Reuse existing
+        // Still promote workspace even when reusing turn
+        return { ...(touchWorkspace(state, conversationId) || {}) };
       }
-      // Otherwise create new empty assistant message
+      // Otherwise create new empty assistant message with pre-generated id
       return {
+        ...(touchWorkspace(state, conversationId) || {}),
         messages: {
           ...state.messages,
           [conversationId]: [
             ...msgs,
-            { role: 'assistant' as const, content: '', parts: [] as ContentPart[] },
+            {
+              id: messageId, // Stable id from backend (prevents DOM re-mount)
+              role: 'assistant' as const,
+              content: '',
+              parts: [] as ContentPart[],
+            },
           ],
         },
       };
     }),
 
   finishAssistantTurn: (conversationId, model, apiCalls) => {
-    // Remove from pending persists - the final persist will be done by stream_end handler
-    pendingPersists.delete(conversationId);
-
+    // The backend persists the complete turn at stream_end; here we only finalize
+    // the local display state.
     set((state) => {
       const msgs = state.messages[conversationId] || [];
       if (msgs.length === 0) return state;

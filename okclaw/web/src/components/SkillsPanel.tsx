@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useStore, type Skill, type SkillType, type SkillSource } from '../store';
 import EditModal from './EditModal';
+import ContextTab from './resources/ContextTab';
+import ProjectFilesTab from './resources/ProjectFilesTab';
 
 // --- Skill type/source badge config ---
 const SKILL_TYPE_CONFIG: Record<SkillType, { label: string; color: string }> = {
@@ -379,6 +381,8 @@ export default function SkillsPanel() {
     skillsByCategory,
     fetchSkills,
     discoverSkills,
+    resourcePanelTab,
+    setResourcePanelTab,
   } = useStore();
 
   const [editTarget, setEditTarget] = useState<string | null>(null); // null = CLAUDE.md, string = skill name
@@ -483,49 +487,89 @@ export default function SkillsPanel() {
           <div className="text-xs text-ink-faint truncate mt-0.5">{activeWorkspace.path}</div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {/* CLAUDE.md section */}
-          <div className="px-4 py-3 border-b border-line-soft">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-sm">📄</span>
-                <span className="text-sm text-ink-sub">CLAUDE.md</span>
-              </div>
+        <div className="px-2 py-2 border-b border-line-soft">
+          <div className="grid grid-cols-3 gap-1 rounded-lg bg-black/5 p-1" role="tablist">
+            {([
+              ['skills', '技能'],
+              ['files', '项目文件'],
+              ['context', '上下文'],
+            ] as const).map(([key, label]) => (
               <button
-                onClick={openClaudeMd}
-                className="text-xs text-accent hover:text-accent-hover transition-colors"
+                key={key}
+                onClick={() => setResourcePanelTab(key)}
+                role="tab"
+                aria-selected={resourcePanelTab === key}
+                className={`px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  resourcePanelTab === key
+                    ? 'bg-surface text-accent shadow-sm'
+                    : 'text-ink-faint hover:text-ink hover:bg-black/5'
+                }`}
               >
-                编辑
+                {label}
               </button>
-            </div>
+            ))}
           </div>
+        </div>
 
-          {/* Channel awareness indicator */}
-          <ChannelAwarenessIndicator />
+        {resourcePanelTab === 'skills' && (
+          <>
+            <div className="flex-1 overflow-y-auto">
+              {/* CLAUDE.md section */}
+              <div className="px-4 py-3 border-b border-line-soft">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">📄</span>
+                    <span className="text-sm text-ink-sub">CLAUDE.md</span>
+                  </div>
+                  <button
+                    onClick={openClaudeMd}
+                    className="text-xs text-accent hover:text-accent-hover transition-colors"
+                  >
+                    编辑
+                  </button>
+                </div>
+              </div>
 
-          {/* Skill sections */}
-          {SECTIONS.map((section) => (
-            <SkillSection
-              key={section.key}
-              section={section}
-              skills={allSkills.filter(section.filter)}
-              onView={handleViewSkill}
-              onInstall={handleInstallSkill}
-            />
-          ))}
+              {/* Channel awareness indicator */}
+              <ChannelAwarenessIndicator />
 
-          {/* Empty state */}
-          {allSkills.length === 0 && (
-            <div className="px-4 py-6 text-center text-ink-faint text-xs">
-              暂无技能可用
+              {/* Skill sections */}
+              {SECTIONS.map((section) => (
+                <SkillSection
+                  key={section.key}
+                  section={section}
+                  skills={allSkills.filter(section.filter)}
+                  onView={handleViewSkill}
+                  onInstall={handleInstallSkill}
+                />
+              ))}
+
+              {/* Empty state */}
+              {allSkills.length === 0 && (
+                <div className="px-4 py-6 text-center text-ink-faint text-xs">
+                  暂无技能可用
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-line-soft text-[10px] text-ink-faint">
-          共 {allSkills.length} 个技能 · 输入 / 调用技能
-        </div>
+            {/* Footer */}
+            <div className="px-4 py-2 border-t border-line-soft text-[10px] text-ink-faint">
+              共 {allSkills.length} 个技能 · 输入 / 调用技能
+            </div>
+          </>
+        )}
+
+        {resourcePanelTab === 'files' && (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ProjectFilesTab workspaceId={activeWorkspaceId!} />
+          </div>
+        )}
+
+        {resourcePanelTab === 'context' && (
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <ContextTab />
+          </div>
+        )}
       </div>
 
       {/* Edit Modal */}

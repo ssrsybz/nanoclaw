@@ -18,7 +18,7 @@ import {
   MAX_FILE_SIZE,
 } from '../file-parser.js';
 import { parseSkillMd } from '../skill-parser.js';
-import { getDb } from '../db.js';
+import { getDb, addConversationMessage } from '../db.js';
 import { logger } from '../logger.js';
 import * as workspace from '../workspace.js';
 import { registerChannel } from './registry.js';
@@ -410,6 +410,27 @@ export class WebChannel implements Channel {
         return;
       }
 
+      // Route: PUT /api/workspaces/:id/icon — set or clear workspace avatar
+      const iconMatch = pathname.match(/^\/api\/workspaces\/([^/]+)\/icon$/);
+      if (iconMatch && method === 'PUT') {
+        const id = iconMatch[1];
+        const ws = workspace.getWorkspace(db, id);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        try {
+          const body = JSON.parse(await readBody());
+          workspace.setWorkspaceIcon(db, id, body.icon !== undefined ? body.icon : null);
+          const updated = workspace.getWorkspace(db, id);
+          sendJson(200, { workspace: updated });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Invalid icon';
+          sendError(400, message);
+        }
+        return;
+      }
+
       // Route: GET /api/workspaces/:id/claude-md
       const claudeMdGetMatch = pathname.match(
         /^\/api\/workspaces\/([^/]+)\/claude-md$/,
@@ -441,6 +462,82 @@ export class WebChannel implements Channel {
         }
         workspace.writeClaudeMd(ws.path, body.content);
         sendJson(200, { ok: true });
+        return;
+      }
+
+      // Route: GET /api/workspaces/:id/files
+      const workspaceFilesMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/files$/,
+      );
+      if (workspaceFilesMatch && method === 'GET') {
+        const id = workspaceFilesMatch[1];
+        const ws = workspace.getWorkspace(db, id);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        try {
+          const url = new URL(req.url ?? '/', `http://localhost:${this.port}`);
+          const requestedPath = url.searchParams.get('path') || '.';
+          const result = workspace.listWorkspaceFiles(ws.path, requestedPath);
+          sendJson(200, result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to list files';
+          sendError(message.includes('escapes') ? 403 : 400, message);
+        }
+        return;
+      }
+
+      // Route: GET /api/workspaces/:id/files/preview
+      const workspaceFilePreviewMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/files\/preview$/,
+      );
+      if (workspaceFilePreviewMatch && method === 'GET') {
+        const id = workspaceFilePreviewMatch[1];
+        const ws = workspace.getWorkspace(db, id);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        try {
+          const url = new URL(req.url ?? '/', `http://localhost:${this.port}`);
+          const requestedPath = url.searchParams.get('path');
+          if (!requestedPath) {
+            sendError(400, 'Missing required query parameter: path');
+            return;
+          }
+          const preview = await workspace.previewWorkspaceFile(ws.path, requestedPath);
+          sendJson(200, preview);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to preview file';
+          sendError(message.includes('escapes') ? 403 : 400, message);
+        }
+        return;
+      }
+
+      // Route: POST /api/workspaces/:id/files/context
+      const workspaceFileContextMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/files\/context$/,
+      );
+      if (workspaceFileContextMatch && method === 'POST') {
+        const id = workspaceFileContextMatch[1];
+        const ws = workspace.getWorkspace(db, id);
+        if (!ws) {
+          sendError(404, 'Workspace not found');
+          return;
+        }
+        try {
+          const body = JSON.parse(await readBody());
+          if (typeof body.path !== 'string' || !body.path.trim()) {
+            sendError(400, 'Missing required field: path');
+            return;
+          }
+          const attachment = await workspace.workspaceFileToAttachment(id, ws.path, body.path);
+          sendJson(200, { attachment });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to add file context';
+          sendError(message.includes('escapes') ? 403 : 400, message);
+        }
         return;
       }
 
@@ -810,6 +907,69 @@ export class WebChannel implements Channel {
         return;
       }
 
+      // Route: GET /api/icons/search — proxy to Iconify search API
+      if (pathname === '/api/icons/search' && method === 'GET') {
+        const url = new URL(req.url ?? '/', `http://localhost:${this.port}`);
+        const query = url.searchParams.get('query') || '';
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '48', 10), 96);
+        const prefix = url.searchParams.get('prefix') || '';
+
+        if (!query || query.length < 2) {
+          sendError(400, 'Query must be at least 2 characters');
+          return;
+        }
+
+        try {
+          const params = new URLSearchParams({ query, limit: String(limit) });
+          if (prefix) params.set('prefix', prefix);
+          const iconifyRes = await fetch(`https://api.iconify.design/search?${params}`);
+          if (!iconifyRes.ok) {
+            sendError(502, 'Iconify search failed');
+            return;
+          }
+          const data = await iconifyRes.json();
+          sendJson(200, data);
+        } catch (err) {
+          logger.error({ err }, 'Iconify search proxy error');
+          sendError(502, 'Failed to search icons');
+        }
+        return;
+      }
+
+      // Route: GET /api/icons/svg — proxy to Iconify SVG API
+      if (pathname === '/api/icons/svg' && method === 'GET') {
+        const url = new URL(req.url ?? '/', `http://localhost:${this.port}`);
+        const iconName = url.searchParams.get('icon') || '';
+
+        if (!iconName) {
+          sendError(400, 'Missing required parameter: icon');
+          return;
+        }
+
+        // Split on first colon only to handle icon names that may contain colons
+        const colonIdx = iconName.indexOf(':');
+        if (colonIdx < 1 || colonIdx === iconName.length - 1) {
+          sendError(400, 'Invalid icon name format. Expected: prefix:name');
+          return;
+        }
+        const prefix = iconName.slice(0, colonIdx);
+        const name = iconName.slice(colonIdx + 1);
+
+        try {
+          const iconifyRes = await fetch(`https://api.iconify.design/${prefix}/${name}.svg`);
+          if (!iconifyRes.ok) {
+            sendError(404, `Icon not found: ${iconName}`);
+            return;
+          }
+          const svgText = await iconifyRes.text();
+          sendJson(200, { icon: iconName, svg: svgText });
+        } catch (err) {
+          logger.error({ err }, 'Iconify SVG proxy error');
+          sendError(502, 'Failed to fetch icon SVG');
+        }
+        return;
+      }
+
       // Route: GET /api/directory-list — browse server directories
       if (pathname === '/api/directory-list' && method === 'GET') {
         const requestedPath =
@@ -872,7 +1032,6 @@ export class WebChannel implements Channel {
         deleteConversation,
         addConversationMessage,
         getConversationMessages,
-        updateConversationMessage,
         getLastAssistantMessage,
       } = await import('../db.js');
 
@@ -1021,79 +1180,22 @@ export class WebChannel implements Channel {
           });
           return;
         }
-
-        if (method === 'POST') {
-          const body = JSON.parse(await readBody());
-          if (typeof body.content !== 'string') {
-            sendError(400, 'Missing required field: content');
-            return;
-          }
-          const parts = body.parts ? JSON.stringify(body.parts) : undefined;
-          const attachment = body.attachment
-            ? JSON.stringify(body.attachment)
-            : undefined;
-          const model = body.model ? String(body.model) : undefined;
-          const apiCalls = body.apiCalls
-            ? JSON.stringify(body.apiCalls)
-            : undefined;
-          const message = addConversationMessage(
-            db,
-            convId,
-            body.role || 'user',
-            body.content,
-            parts,
-            attachment,
-            model,
-            apiCalls,
-          );
-          sendJson(201, {
-            message: {
-              id: message.id,
-              role: message.role,
-              content: message.content,
-              parts: message.parts ? JSON.parse(message.parts) : null,
-              attachment: message.attachment
-                ? JSON.parse(message.attachment)
-                : null,
-              model: message.model,
-              apiCalls: message.api_calls
-                ? JSON.parse(message.api_calls)
-                : null,
-              createdAt: message.created_at,
-            },
-          });
-          return;
-        }
       }
 
-      // Route: PATCH /api/conversations/:convId/messages/:msgId (update streaming message)
-      const msgUpdateMatch = pathname.match(
-        /^\/api\/conversations\/([^/]+)\/messages\/([^/]+)$/,
+      // Route: GET /api/workspaces/:id/agent-states
+      // Returns which conversations in a workspace currently have a running agent.
+      const agentStatesMatch = pathname.match(
+        /^\/api\/workspaces\/([^/]+)\/agent-states$/,
       );
-      if (msgUpdateMatch && method === 'PATCH') {
-        const convId = msgUpdateMatch[1];
-        const msgId = msgUpdateMatch[2];
-        const body = JSON.parse(await readBody());
-
-        const updates: {
-          content?: string;
-          parts?: string;
-          model?: string;
-          apiCalls?: string;
-        } = {};
-        if (body.content !== undefined) updates.content = body.content;
-        if (body.parts !== undefined)
-          updates.parts = JSON.stringify(body.parts);
-        if (body.model !== undefined) updates.model = body.model;
-        if (body.apiCalls !== undefined)
-          updates.apiCalls = JSON.stringify(body.apiCalls);
-
-        const success = updateConversationMessage(db, msgId, updates);
-        if (success) {
-          sendJson(200, { success: true });
-        } else {
-          sendError(404, 'Message not found');
+      if (agentStatesMatch && method === 'GET') {
+        const workspaceId = agentStatesMatch[1];
+        const result: Record<string, string> = {};
+        for (const [convId, state] of this.agentStates) {
+          if (state.workspaceId === workspaceId && state.status === 'running') {
+            result[convId] = 'running';
+          }
         }
+        sendJson(200, { agentStates: result });
         return;
       }
 
@@ -1350,7 +1452,7 @@ export class WebChannel implements Channel {
 
         // 复用现有的消息注入逻辑
         this.opts.onMessage(chatJid, {
-          id: `remote-${Date.now()}`,
+          id: `remote-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           chat_jid: chatJid,
           sender: sender || 'remote-user',
           sender_name: sender_name || 'Remote User',
@@ -1711,6 +1813,9 @@ export class WebChannel implements Channel {
         this.clientConversationIds.set(ws, msg.conversationId);
       }
 
+      // Promote workspace to top (WeChat-style: active workspace comes first)
+      workspace.updateLastUsed(getDb(), workspaceId);
+
       // Ensure group is registered for this workspace and get chatJid
       const chatJid = this.ensureWorkspaceGroupRegistered(workspaceId);
 
@@ -1738,9 +1843,30 @@ export class WebChannel implements Channel {
         enrichedContent = `${attachBlock}\n\n${msg.content}`;
       }
 
+      // Backend persists the user message directly so the conversation history
+      // stays complete even if the frontend is no longer subscribed (workspace
+      // switched / page closed). The frontend no longer POSTs user messages.
+      if (msg.conversationId) {
+        try {
+          addConversationMessage(
+            getDb(),
+            msg.conversationId,
+            'user',
+            enrichedContent,
+            undefined,
+            msg.attachment ? JSON.stringify(msg.attachment) : undefined,
+          );
+        } catch (err) {
+          logger.error(
+            { err, conversationId: msg.conversationId },
+            'Failed to persist user message to DB',
+          );
+        }
+      }
+
       // Deliver message
       this.opts.onMessage(chatJid, {
-        id: `web-${Date.now()}`,
+        id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         chat_jid: chatJid,
         sender: 'web-user',
         sender_name: sender,
@@ -1812,23 +1938,13 @@ export class WebChannel implements Channel {
       timestamp,
     };
 
-    // If conversationId is provided, route to the specific client
-    // Otherwise broadcast to all clients (legacy behavior)
-    if (conversationId) {
-      for (const [client, clientConvId] of this.clientConversationIds) {
-        if (
-          clientConvId === conversationId &&
-          client.readyState === WebSocket.OPEN
-        ) {
-          this.sendToClient(client, msg);
-        }
-      }
-    } else {
-      // Broadcast to all clients for backwards compatibility
-      for (const client of this.clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          this.sendToClient(client, msg);
-        }
+    // Broadcast to ALL connected clients - let frontend filter by conversationId.
+    // This ensures messages reach the client even if user switched to another
+    // workspace/conversation while the agent was running. Frontend uses the
+    // conversationId to route to the correct conversation in its store.
+    for (const client of this.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        this.sendToClient(client, msg);
       }
     }
 
@@ -1839,7 +1955,15 @@ export class WebChannel implements Channel {
     }
 
     // ============ Buffer message for reconnection recovery ============
-    if (conversationId) {
+    // Token-level deltas (text_delta/thinking_delta) are NOT buffered — they
+    // would overflow MESSAGE_BUFFER_SIZE instantly and replaying hundreds of
+    // tokens on reconnect is pointless (the full block is buffered instead).
+    // Only block-level events are buffered for running-turn replay.
+    if (
+      conversationId &&
+      data.type !== 'text_delta' &&
+      data.type !== 'thinking_delta'
+    ) {
       const state = this.agentStates.get(conversationId);
       if (state && state.status === 'running') {
         state.messageBuffer.push({
@@ -1946,6 +2070,7 @@ export class WebChannel implements Channel {
       { conversationId, workspaceId, activeAgents: this.agentStates.size },
       'Agent state: started',
     );
+    this.broadcastAgentStateChanged(conversationId, workspaceId, 'running');
   }
 
   /**
@@ -1959,6 +2084,11 @@ export class WebChannel implements Channel {
       logger.info(
         { conversationId, bufferSize: state.messageBuffer.length },
         'Agent state: completed',
+      );
+      this.broadcastAgentStateChanged(
+        conversationId,
+        state.workspaceId,
+        'complete',
       );
       // Keep state for a while to allow reconnection recovery
       setTimeout(() => {
@@ -1978,10 +2108,39 @@ export class WebChannel implements Channel {
     const state = this.agentStates.get(conversationId);
     if (state) {
       state.status = 'error';
+      this.broadcastAgentStateChanged(
+        conversationId,
+        state.workspaceId,
+        'error',
+      );
       // Same TTL cleanup as complete
       setTimeout(() => {
         this.agentStates.delete(conversationId);
       }, AGENT_STATE_TTL);
+    }
+  }
+
+  /**
+   * Broadcast a running-state change to every client currently viewing the
+   * workspace, so sidebars can show/hide the running indicator in real time —
+   * even for conversations the user has switched away from.
+   */
+  private broadcastAgentStateChanged(
+    conversationId: string,
+    workspaceId: string,
+    status: 'running' | 'complete' | 'error',
+  ): void {
+    const msg = {
+      type: 'agent_state_changed',
+      conversationId,
+      workspaceId,
+      status,
+      timestamp: Date.now(),
+    };
+    for (const [client, wsId] of this.clientWorkspaces) {
+      if (wsId === workspaceId && client.readyState === WebSocket.OPEN) {
+        this.sendToClient(client, msg);
+      }
     }
   }
 

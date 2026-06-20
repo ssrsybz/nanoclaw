@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store';
 import LLMConfigPanel from './LLMConfigPanel';
+import WorkspaceAvatar from './WorkspaceAvatar';
+import IconPickerModal from './IconPickerModal';
 
 // ============ Main Sidebar ============
 export default function WorkspaceSidebar() {
@@ -17,10 +19,13 @@ export default function WorkspaceSidebar() {
     deleteConversation,
     renameConversation,
     addWorkspace,
+    updateWorkspaceIcon,
+    typingConversations,
   } = useStore();
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [iconPickerWsId, setIconPickerWsId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string>('');
   const finishingRef = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -124,8 +129,21 @@ export default function WorkspaceSidebar() {
                     : 'hover:bg-black/5 border border-transparent'
                 }`}
               >
-                <div className="font-medium text-sm text-ink truncate">{ws.name}</div>
-                <div className="text-xs text-ink-faint truncate mt-0.5">{ws.path}</div>
+                <div className="flex items-center gap-2.5">
+                  <WorkspaceAvatar
+                    name={ws.name}
+                    icon={ws.icon}
+                    size={32}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIconPickerWsId(ws.id);
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm text-ink truncate">{ws.name}</div>
+                    <div className="text-xs text-ink-faint truncate">{ws.path}</div>
+                  </div>
+                </div>
                 {isHovered && (
                   <button
                     onClick={(e) => handleRemove(e, ws.id)}
@@ -175,9 +193,15 @@ export default function WorkspaceSidebar() {
                         }`}
                       >
                         <span
-                          className="text-xs truncate flex-1"
+                          className="text-xs truncate flex-1 flex items-center"
                           onDoubleClick={(e) => handleStartRename(e, ws.id, conv.id, conv.name)}
                         >
+                          {typingConversations[conv.id] && (
+                            <span
+                              className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse mr-1.5 shrink-0"
+                              title="后台运行中"
+                            />
+                          )}
                           {conv.name}
                         </span>
                         <div className="hidden group-hover:flex items-center gap-1">
@@ -221,6 +245,18 @@ export default function WorkspaceSidebar() {
             {activeWorkspace.name}
           </div>
         </div>
+      )}
+
+      {/* Icon picker modal */}
+      {iconPickerWsId && (
+        <IconPickerModal
+          currentIcon={workspaces.find((w) => w.id === iconPickerWsId)?.icon ?? null}
+          onClose={() => setIconPickerWsId(null)}
+          onSelect={(icon) => {
+            updateWorkspaceIcon(iconPickerWsId, icon);
+            setIconPickerWsId(null);
+          }}
+        />
       )}
     </div>
   );

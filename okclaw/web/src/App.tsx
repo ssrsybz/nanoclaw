@@ -15,6 +15,7 @@ export default function App() {
     setTyping,
     appendMessage,
     appendPart,
+    appendToTextPart,
     startAssistantTurn,
     finishAssistantTurn,
     completeThinkingParts,
@@ -96,12 +97,37 @@ export default function App() {
             setTyping(conversationId, true);
             break;
 
+          case 'text_delta':
+            // Token-level text streaming: append the fragment to the running
+            // turn's last text part (typing-style UI). The full block is still
+            // emitted as 'assistant' / persisted at stream_end.
+            if (data.content) {
+              appendToTextPart(conversationId, data.content);
+            }
+            break;
+
+          case 'thinking_delta':
+            // Token-level thinking streaming: accumulate into the dedicated
+            // streaming thinking state (not parts, per existing design).
+            // Keyed by conversationId to support concurrent agents.
+            if (data.content) {
+              setStreamingThinking((cur) => ({
+                ...cur,
+                [conversationId]: {
+                  thinking: (cur[conversationId]?.thinking || '') + data.content,
+                  isStreaming: true,
+                },
+              }));
+            }
+            break;
+
           case 'stream_start':
             // Agent starts working — create empty assistant turn container
+            // Backend pre-generates messageId for stable frontend state
             setTyping(conversationId, true);
-            startAssistantTurn(conversationId);
-            // Clear stale streaming thinking from previous turn
-            setStreamingThinking(() => null);
+            startAssistantTurn(conversationId, data.messageId);
+            // Clear stale streaming thinking for this conversation
+            setStreamingThinking((cur) => ({ ...cur, [conversationId]: null }));
             break;
 
           case 'assistant': {
@@ -126,9 +152,13 @@ export default function App() {
             // Update streaming thinking state (like Claude Code's approach).
             // Don't append to parts during streaming — a single completed part
             // will be appended when the thinking block finishes.
-            setStreamingThinking(() => ({
-              thinking: data.content,
-              isStreaming: true,
+            // Keyed by conversationId for concurrent agent support.
+            setStreamingThinking((cur) => ({
+              ...cur,
+              [conversationId]: {
+                thinking: data.content,
+                isStreaming: true,
+              },
             }));
             break;
 
@@ -165,7 +195,8 @@ export default function App() {
 
           case 'stream_end': {
             // Snapshot final streaming thinking and append as a single complete part
-            const finalThinking = useStore.getState().streamingThinking;
+            const allThinking = useStore.getState().streamingThinking;
+            const finalThinking = allThinking[conversationId];
             if (finalThinking && finalThinking.thinking) {
               appendPart(conversationId, {
                 type: 'thinking',
@@ -174,70 +205,27 @@ export default function App() {
               });
             }
             // Mark streaming thinking as complete (will auto-hide after 30s in UI)
-            setStreamingThinking((current) =>
-              current ? { ...current, isStreaming: false, streamingEndedAt: Date.now() } : null
-            );
+            setStreamingThinking((current) => ({
+              ...current,
+              [conversationId]: current[conversationId]
+                ? { ...current[conversationId], isStreaming: false, streamingEndedAt: Date.now() }
+                : null,
+            }));
 
             completeThinkingParts(conversationId);
-            // Persist the complete assistant turn to backend
+            // The backend is now the sole persistence point (it writes the complete
+            // assistant turn to conversation_messages at stream_end). The frontend only
+            // finalizes the local turn state here.
             finishAssistantTurn(conversationId, data.model, data.apiCalls);
             setTyping(conversationId, false);
-            // Persist complete turn (including parts) to backend
-            // Find the workspaceId from the conversation (not from activeWorkspaceIdRef)
-            const { conversations } = useStore.getState();
-            let workspaceIdForPersist: string | null = null;
-            for (const [wsId, convList] of Object.entries(conversations)) {
-              if (convList.some(c => c.id === conversationId)) {
-                workspaceIdForPersist = wsId;
-                break;
-              }
-            }
-            const currentMsgs = useStore.getState().messages[conversationId] || [];
-            const lastAssistant = [...currentMsgs].reverse().find((m) => m.role === 'assistant' && m._turnComplete);
+            break;
+          }
 
-            // Persist assistant message: check if batchPersist already created one
-            // stream_end is the final persist for the completed turn
-            if (workspaceIdForPersist && lastAssistant) {
-              // Check if this turn already has a backend message (created by batchPersist)
-              // by looking at the message ID in the frontend state
-              if (lastAssistant.id) {
-                // batchPersist already created the message, just update with final model/apiCalls
-                fetch(`/api/conversations/${conversationId}/messages/${lastAssistant.id}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    content: lastAssistant.content,
-                    parts: lastAssistant.parts,
-                    model: data.model,
-                    apiCalls: data.apiCalls,
-                  }),
-                }).catch(err => console.error('Failed to update assistant turn:', err));
-              } else {
-                // batchPersist didn't create a message yet, create one now
-                fetch(`/api/workspaces/${workspaceIdForPersist}/conversations/${conversationId}/messages`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    role: 'assistant',
-                    content: lastAssistant.content,
-                    parts: lastAssistant.parts,
-                    model: data.model,
-                    apiCalls: data.apiCalls,
-                  }),
-                })
-                  .then(res => res.json())
-                  .then(createData => {
-                    // Store the created message ID back to frontend state
-                    if (createData.message?.id) {
-                      useStore.getState().messages[conversationId]?.forEach(m => {
-                        if (m.role === 'assistant' && m._turnComplete && !m.id) {
-                          m.id = createData.message.id;
-                        }
-                      });
-                    }
-                  })
-                  .catch(err => console.error('Failed to persist assistant turn:', err));
-              }
+          case 'agent_state_changed': {
+            // Real-time running-state broadcast: another conversation in this
+            // workspace started/finished running. Keep the sidebar indicator fresh.
+            if (data.conversationId && data.status) {
+              setTyping(data.conversationId, data.status === 'running');
             }
             break;
           }
@@ -266,9 +254,12 @@ export default function App() {
                 if (msg.type === 'assistant' && msg.data?.content) {
                   appendPart(conversationId, { type: 'text', text: msg.data.content });
                 } else if (msg.type === 'thinking' && msg.data?.content) {
-                  setStreamingThinking(() => ({
-                    thinking: msg.data.content,
-                    isStreaming: true,
+                  setStreamingThinking((cur) => ({
+                    ...cur,
+                    [conversationId]: {
+                      thinking: msg.data.content,
+                      isStreaming: true,
+                    },
                   }));
                 } else if (msg.type === 'tool_use') {
                   appendPart(conversationId, {
@@ -333,7 +324,7 @@ export default function App() {
     ws.onerror = () => {
       setConnected(false);
     };
-  }, [setConnected, setTyping, appendMessage, appendPart, startAssistantTurn, finishAssistantTurn, setStreamingThinking]);
+  }, [setConnected, setTyping, appendMessage, appendPart, appendToTextPart, startAssistantTurn, finishAssistantTurn, setStreamingThinking]);
 
   useEffect(() => {
     fetchWorkspaces().then(() => {
@@ -397,24 +388,11 @@ export default function App() {
       }
 
       setTyping(conversationId, true);
-      // Store user message immediately for instant display
-      // Display original content (with skill prefix if present) to user
+      // Store user message immediately for instant display.
+      // The backend persists the user message on receipt (web channel onMessage),
+      // so the frontend no longer POSTs it — avoids a double write and keeps the
+      // history complete even if the frontend is not subscribed.
       appendMessage(conversationId, { role: 'user', content: content || '', attachment });
-
-      // Persist message to backend via API
-      try {
-        await fetch(`/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            role: 'user',
-            content: content || `[附件: ${attachment?.filename}]`,
-            attachment,
-          }),
-        });
-      } catch (err) {
-        console.error('Failed to persist message:', err);
-      }
 
       ws.send(JSON.stringify({
         type: 'message',
